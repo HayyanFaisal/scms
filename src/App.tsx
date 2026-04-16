@@ -76,8 +76,12 @@ function App() {
         setNotifications(getAllNotifications());
       };
       updateNotifications();
+      const unsubscribe = db.subscribe(updateNotifications);
       const interval = setInterval(updateNotifications, 60000);
-      return () => clearInterval(interval);
+      return () => {
+        unsubscribe();
+        clearInterval(interval);
+      };
     }
   }, [isAuthenticated]);
 

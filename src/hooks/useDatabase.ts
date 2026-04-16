@@ -17,6 +17,13 @@ import type {
   DisabilityCategory
 } from '@/types';
 
+function useDbRefresh(refresh: () => void) {
+  useEffect(() => {
+    refresh();
+    return db.subscribe(refresh);
+  }, [refresh]);
+}
+
 // Generic hook for data fetching
 export function useData<T>(fetcher: () => T, deps: any[] = []): T {
   const [data, setData] = useState<T>(fetcher());
@@ -36,9 +43,7 @@ export function useParents() {
     setParents(db.getAllParents());
   }, []);
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  useDbRefresh(refresh);
 
   const create = useCallback((parent: Omit<ParentBeneficiary, 'created_at'>) => {
     const result = db.createParent(parent);
@@ -70,9 +75,7 @@ export function useParentWithDetails(pNo: string | null) {
     }
   }, [pNo]);
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  useDbRefresh(refresh);
 
   return { parent, refresh };
 }
@@ -85,9 +88,7 @@ export function useChildren() {
     setChildren(db.getAllChildren());
   }, []);
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  useDbRefresh(refresh);
 
   const create = useCallback((child: Omit<DependentChildren, 'Child_ID'>) => {
     const result = db.createChild(child);
@@ -117,9 +118,7 @@ export function useChildrenByParent(pNo: string) {
     setChildren(db.getChildrenByParent(pNo));
   }, [pNo]);
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  useDbRefresh(refresh);
 
   return { children, refresh };
 }
@@ -133,9 +132,7 @@ export function useChildWithDetails(childId: number | null) {
     }
   }, [childId]);
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  useDbRefresh(refresh);
 
   return { child, refresh };
 }
@@ -148,9 +145,7 @@ export function useGrants() {
     setGrants(db.getAllGrants());
   }, []);
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  useDbRefresh(refresh);
 
   const create = useCallback((grant: Omit<MonthlyGrants, 'Grant_ID'>) => {
     const result = db.createGrant(grant);
@@ -180,9 +175,7 @@ export function useGrantsWithDetails() {
     setGrants(db.getAllGrantsWithDetails());
   }, []);
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  useDbRefresh(refresh);
 
   return { grants, refresh };
 }
@@ -194,9 +187,7 @@ export function useExpiringGrants(days: number = 30) {
     setGrants(db.getExpiringGrants(days));
   }, [days]);
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  useDbRefresh(refresh);
 
   return { grants, refresh };
 }
@@ -209,9 +200,7 @@ export function useGadgets() {
     setGadgets(db.getAllGadgets());
   }, []);
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  useDbRefresh(refresh);
 
   const create = useCallback((gadget: Omit<ChildGadgets, 'Gadget_ID' | 'Tax_18_Percent' | 'Total_Cost'>) => {
     const result = db.createGadget(gadget);
@@ -241,9 +230,7 @@ export function usePendingGadgets() {
     setGadgets(db.getPendingGadgets());
   }, []);
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  useDbRefresh(refresh);
 
   return { gadgets, refresh };
 }
@@ -256,9 +243,7 @@ export function useDocuments() {
     setDocuments(db.getAllDocuments());
   }, []);
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  useDbRefresh(refresh);
 
   const create = useCallback((doc: Omit<DocumentTracking, 'Doc_ID'>) => {
     const result = db.createDocument(doc);
@@ -283,9 +268,7 @@ export function useBanking() {
     setBanking(db.getAllBanking());
   }, []);
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  useDbRefresh(refresh);
 
   const create = useCallback((bank: Omit<BankingDetails, 'Account_ID'>) => {
     const result = db.createBanking(bank);
@@ -317,9 +300,7 @@ export function useDashboardKPIs() {
     setKpis(db.getDashboardKPIs());
   }, []);
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  useDbRefresh(refresh);
 
   return { kpis, refresh };
 }
@@ -329,11 +310,16 @@ export function useSearch(query: string) {
   const [results, setResults] = useState<SearchResult[]>([]);
 
   useEffect(() => {
-    if (query.trim()) {
-      setResults(db.search(query));
-    } else {
-      setResults([]);
-    }
+    const update = () => {
+      if (query.trim()) {
+        setResults(db.search(query));
+      } else {
+        setResults([]);
+      }
+    };
+
+    update();
+    return db.subscribe(update);
   }, [query]);
 
   return results;
@@ -347,9 +333,7 @@ export function useAuditLogs() {
     setLogs(db.getAllAuditLogs());
   }, []);
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  useDbRefresh(refresh);
 
   return { logs, refresh };
 }
@@ -362,9 +346,7 @@ export function useUsers() {
     setUsers(db.getAllUsers());
   }, []);
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  useDbRefresh(refresh);
 
   const create = useCallback((user: Omit<User, 'User_ID'>) => {
     const result = db.createUser(user);

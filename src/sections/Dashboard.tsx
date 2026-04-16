@@ -17,6 +17,7 @@ import { useDashboardKPIs, useSearch, useSeedData } from '@/hooks/useDatabase';
 import { useAuth } from '@/hooks/useAuth';
 import { formatCurrency, formatNumber, formatDate } from '@/lib/validation';
 import { getUnreadCount } from '@/lib/notifications';
+import { db } from '@/services/database';
 import type { SearchResult } from '@/types';
 
 interface DashboardProps {
@@ -34,10 +35,16 @@ export function Dashboard({ onNavigate }: DashboardProps) {
 
   useEffect(() => {
     setNotificationCount(getUnreadCount());
+    const unsubscribe = db.subscribe(() => {
+      setNotificationCount(getUnreadCount());
+    });
     const interval = setInterval(() => {
       setNotificationCount(getUnreadCount());
     }, 60000);
-    return () => clearInterval(interval);
+    return () => {
+      unsubscribe();
+      clearInterval(interval);
+    };
   }, []);
 
   const handleSearch = (e: React.FormEvent) => {

@@ -15,6 +15,119 @@ import type {
   DisabilityCategory
 } from '@/types';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+
+type DatabaseSnapshot = {
+  parents: ParentBeneficiary[];
+  documents: DocumentTracking[];
+  banking: BankingDetails[];
+  children: DependentChildren[];
+  grants: MonthlyGrants[];
+  gadgets: ChildGadgets[];
+};
+
+function toNumber(value: unknown, fallback = 0): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeParent(row: any): ParentBeneficiary {
+  return {
+    P_No_O_No: row.P_No_O_No,
+    Parent_Name: row.Parent_Name,
+    Rank_Rate: row.Rank_Rate,
+    Unit: row.Unit,
+    Admin_Authority: row.Admin_Authority,
+    Service_Status: row.Service_Status,
+    Parent_CNIC: row.Parent_CNIC,
+    created_at: row.created_at,
+    updated_at: row.updated_at
+  };
+}
+
+function normalizeDocument(row: any): DocumentTracking {
+  return {
+    Doc_ID: toNumber(row.Doc_ID),
+    P_No_O_No: row.P_No_O_No,
+    Letter_Reference: row.Letter_Reference,
+    Contact_No: row.Contact_No,
+    Almirah_No: row.Almirah_No,
+    File_No: row.File_No
+  };
+}
+
+function normalizeBanking(row: any): BankingDetails {
+  return {
+    Account_ID: toNumber(row.Account_ID),
+    P_No_O_No: row.P_No_O_No,
+    Account_Title: row.Account_Title,
+    IBAN: row.IBAN,
+    Bank_Name_Branch: row.Bank_Name_Branch
+  };
+}
+
+function normalizeChild(row: any): DependentChildren {
+  return {
+    Child_ID: toNumber(row.Child_ID),
+    P_No_O_No: row.P_No_O_No,
+    Child_Name: row.Child_Name,
+    Age: toNumber(row.Age),
+    CNIC_BForm_No: row.CNIC_BForm_No,
+    Disease_Disability: row.Disease_Disability,
+    Disability_Category: (row.Disability_Category || row.Category || 'A') as any,
+    School: row.School
+  };
+}
+
+function normalizeGrant(row: any): MonthlyGrants {
+  const monthlyAmount = toNumber(row.Monthly_Amount ?? row.Monthly_Amount_Rs);
+  const totalCFYAmount = toNumber(row.Total_CFY_Amount ?? row.Current_Payment_Amount ?? monthlyAmount * 12);
+
+  return {
+    Grant_ID: toNumber(row.Grant_ID),
+    Child_ID: toNumber(row.Child_ID),
+    Monthly_Amount: monthlyAmount,
+    Total_CFY_Amount: totalCFYAmount,
+    Approved_From: row.Approved_From,
+    Approved_To: row.Approved_To
+  };
+}
+
+function normalizeGadget(row: any): ChildGadgets {
+  const baseCost = toNumber(row.Base_Cost ?? row.Cost_in_Rs);
+
+  return {
+    Gadget_ID: toNumber(row.Gadget_ID),
+    Child_ID: toNumber(row.Child_ID),
+    Detail_of_Gadgets: row.Detail_of_Gadgets,
+    Base_Cost: baseCost,
+    Tax_18_Percent: toNumber(row.Tax_18_Percent, baseCost * 0.18),
+    Total_Cost: toNumber(row.Total_Cost, baseCost * 1.18),
+    Acquisition_Type: (row.Acquisition_Type || (row.Status === 'Pending' ? 'Reimbursed' : 'Off the Shelf')) as any
+  };
+}
+
+async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init?.headers || {})
+    },
+    ...init
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `Request failed with status ${response.status}`);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  return response.json() as Promise<T>;
+}
+
 // Database Keys
 const DB_KEYS = {
   PARENTS: 'scms_parents',
@@ -79,8 +192,51 @@ const initializeDefaultData = () => {
 
 // Generic CRUD operations
 class DatabaseService {
+  private listeners = new Set<() => void>();
+
   constructor() {
     initializeDefaultData();
+    void this.hydrateFromServer();
+  }
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private notify(): void {
+    this.listeners.forEach(listener => listener());
+  }
+
+  private async hydrateFromServer(): Promise<void> {
+    try {
+      const snapshot = await requestJson<DatabaseSnapshot>('/bootstrap');
+      localStorage.setItem(DB_KEYS.PARENTS, JSON.stringify((snapshot.parents || []).map(normalizeParent)));
+      localStorage.setItem(DB_KEYS.DOCUMENTS, JSON.stringify((snapshot.documents || []).map(normalizeDocument)));
+      localStorage.setItem(DB_KEYS.BANKING, JSON.stringify((snapshot.banking || []).map(normalizeBanking)));
+      localStorage.setItem(DB_KEYS.CHILDREN, JSON.stringify((snapshot.children || []).map(normalizeChild)));
+      localStorage.setItem(DB_KEYS.GRANTS, JSON.stringify((snapshot.grants || []).map(normalizeGrant)));
+      localStorage.setItem(DB_KEYS.GADGETS, JSON.stringify((snapshot.gadgets || []).map(normalizeGadget)));
+      this.notify();
+    } catch (error) {
+      console.warn('Backend hydration skipped:', error);
+      setTimeout(() => {
+        void this.hydrateFromServer();
+      }, 1500);
+    }
+  }
+
+  private syncMutation(path: string, init: RequestInit): void {
+    void requestJson(path, init)
+      .then(() => this.hydrateFromServer())
+      .catch(error => {
+        console.warn(`Backend sync failed for ${path}:`, error);
+        setTimeout(() => {
+          void this.hydrateFromServer();
+        }, 1500);
+      });
   }
 
   // Get next ID
@@ -109,6 +265,16 @@ class DatabaseService {
     const newItem = { ...item, [idField]: this.getNextId(key) };
     items.push(newItem);
     localStorage.setItem(key, JSON.stringify(items));
+    this.notify();
+
+    const path = this.getApiPathForKey(key);
+    if (path) {
+      this.syncMutation(path, {
+        method: 'POST',
+        body: JSON.stringify(newItem)
+      });
+    }
+
     return newItem;
   }
 
@@ -119,6 +285,16 @@ class DatabaseService {
     if (index === -1) return null;
     items[index] = { ...items[index], ...updates, updated_at: new Date().toISOString() };
     localStorage.setItem(key, JSON.stringify(items));
+    this.notify();
+
+    const path = this.getApiPathForKey(key);
+    if (path) {
+      this.syncMutation(`${path}/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(items[index])
+      });
+    }
+
     return items[index];
   }
 
@@ -128,7 +304,35 @@ class DatabaseService {
     const filtered = items.filter((item: any) => item[idField] !== id);
     if (filtered.length === items.length) return false;
     localStorage.setItem(key, JSON.stringify(filtered));
+    this.notify();
+
+    const path = this.getApiPathForKey(key);
+    if (path) {
+      this.syncMutation(`${path}/${id}`, {
+        method: 'DELETE'
+      });
+    }
+
     return true;
+  }
+
+  private getApiPathForKey(key: string): string | null {
+    switch (key) {
+      case DB_KEYS.PARENTS:
+        return '/parents';
+      case DB_KEYS.DOCUMENTS:
+        return '/documents';
+      case DB_KEYS.BANKING:
+        return '/banking';
+      case DB_KEYS.CHILDREN:
+        return '/children';
+      case DB_KEYS.GRANTS:
+        return '/grants';
+      case DB_KEYS.GADGETS:
+        return '/gadgets';
+      default:
+        return null;
+    }
   }
 
   // ============ PARENT BENEFICIARY ============
@@ -146,6 +350,11 @@ class DatabaseService {
     items.push(newParent);
     localStorage.setItem(DB_KEYS.PARENTS, JSON.stringify(items));
     this.logAudit('Parent_Beneficiary', parent.P_No_O_No, 'CREATE', undefined, newParent);
+    this.notify();
+    this.syncMutation('/parents', {
+      method: 'POST',
+      body: JSON.stringify(newParent)
+    });
     return newParent;
   }
 
@@ -157,6 +366,11 @@ class DatabaseService {
     items[index] = { ...items[index], ...updates, updated_at: new Date().toISOString() };
     localStorage.setItem(DB_KEYS.PARENTS, JSON.stringify(items));
     this.logAudit('Parent_Beneficiary', pNo, 'UPDATE', oldParent, items[index]);
+    this.notify();
+    this.syncMutation(`/parents/${pNo}`, {
+      method: 'PUT',
+      body: JSON.stringify(items[index])
+    });
     return items[index];
   }
 
@@ -643,6 +857,10 @@ class DatabaseService {
 
   // ============ SAMPLE DATA ============
   seedSampleData(): void {
+    if (this.getAllParents().length > 0) {
+      return;
+    }
+
     // Sample Parents
     const parents: Omit<ParentBeneficiary, 'created_at'>[] = [
       {
@@ -744,6 +962,10 @@ class DatabaseService {
     ];
 
     gadgets.forEach(g => this.createGadget(g));
+    this.notify();
+    this.syncMutation('/seed-sample', {
+      method: 'POST'
+    });
   }
 }
 

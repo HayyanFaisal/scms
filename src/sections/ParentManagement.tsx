@@ -41,9 +41,8 @@ import {
   Briefcase,
   ArrowRight
 } from 'lucide-react';
-import { useParents } from '@/hooks/useDatabase';
+import { useParents, useParentWithDetails } from '@/hooks/useDatabase';
 import { useAuth } from '@/hooks/useAuth';
-import { db } from '@/services/database';
 import type { ParentBeneficiary, ServiceStatus } from '@/types';
 
 interface ParentManagementProps {
@@ -233,7 +232,7 @@ interface ParentDetailProps {
 
 export function ParentDetail({ pNo, onNavigate, onBack }: ParentDetailProps) {
   const { canUpdate } = useAuth();
-  const [parent] = useState(() => db.getParentWithDetails(pNo));
+  const { parent } = useParentWithDetails(pNo);
   const [activeTab, setActiveTab] = useState('profile');
 
   if (!parent) {
