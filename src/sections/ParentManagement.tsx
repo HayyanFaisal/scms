@@ -43,6 +43,7 @@ import {
 } from 'lucide-react';
 import { useParents, useParentWithDetails } from '@/hooks/useDatabase';
 import { useAuth } from '@/hooks/useAuth';
+import { formatChildDisplayName } from '@/lib/utils';
 import type { ParentBeneficiary, ServiceStatus } from '@/types';
 
 interface ParentManagementProps {
@@ -340,7 +341,7 @@ export function ParentDetail({ pNo, onNavigate, onBack }: ParentDetailProps) {
                     >
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="font-medium text-lg">{child.Child_Name}</p>
+                          <p className="font-medium text-lg">{formatChildDisplayName(child.Child_Name, parent.Parent_Name, child.P_No_O_No)}</p>
                           <p className="text-sm text-slate-500">
                             Age: {child.Age} years • CNIC/B-Form: {child.CNIC_BForm_No}
                           </p>

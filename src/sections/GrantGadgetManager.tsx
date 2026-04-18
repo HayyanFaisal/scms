@@ -33,8 +33,9 @@ import {
   Trash2,
   Search
 } from 'lucide-react';
-import { useGrants, useGadgets, useChildren, useExpiringGrants } from '@/hooks/useDatabase';
+import { useGrants, useGadgets, useChildren, useParents, useExpiringGrants } from '@/hooks/useDatabase';
 import { useAuth } from '@/hooks/useAuth';
+import { formatChildDisplayName } from '@/lib/utils';
 import { formatCurrency, formatDate } from '@/lib/validation';
 import type { MonthlyGrants, ChildGadgets, DisabilityCategory, AcquisitionType } from '@/types';
 
@@ -111,6 +112,7 @@ export function GrantGadgetManager({ onNavigate }: GrantGadgetManagerProps) {
 function GrantsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; canUpdate: boolean; canDelete: boolean }) {
   const { grants, create, update, remove } = useGrants();
   const { children } = useChildren();
+  const { parents } = useParents();
   const { grants: expiringGrants } = useExpiringGrants(30);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<DisabilityCategory | 'all'>('all');
@@ -281,13 +283,14 @@ function GrantsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; c
                 ) : (
                   filteredGrants.map((grant) => {
                     const child = children.find(c => c.Child_ID === grant.Child_ID);
+                    const parent = parents.find((p: any) => p.P_No_O_No === child?.P_No_O_No);
                     const isExpiring = new Date(grant.Approved_To) <= new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
                     const isExpired = new Date(grant.Approved_To) < new Date();
                     
                     return (
                       <TableRow key={grant.Grant_ID}>
                         <TableCell>
-                          <p className="font-medium">{child?.Child_Name}</p>
+                          <p className="font-medium">{formatChildDisplayName(child?.Child_Name || 'Unknown Child', parent?.Parent_Name, child?.P_No_O_No)}</p>
                           <p className="text-sm text-slate-500">{child?.P_No_O_No}</p>
                         </TableCell>
                         <TableCell>
@@ -348,7 +351,7 @@ function GrantsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; c
                 <SelectContent>
                   {children.map(child => (
                     <SelectItem key={child.Child_ID} value={child.Child_ID.toString()}>
-                      {child.Child_Name} (Cat {child.Disability_Category})
+                      {formatChildDisplayName(child.Child_Name, parents.find((p: any) => p.P_No_O_No === child.P_No_O_No)?.Parent_Name, child.P_No_O_No)} (Cat {child.Disability_Category})
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -409,6 +412,7 @@ function GrantsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; c
 function GadgetsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; canUpdate: boolean; canDelete: boolean }) {
   const { gadgets, create, update, remove } = useGadgets();
   const { children } = useChildren();
+  const { parents } = useParents();
   const [searchQuery, setSearchQuery] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingGadget, setEditingGadget] = useState<ChildGadgets | null>(null);
@@ -549,11 +553,12 @@ function GadgetsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; 
                 ) : (
                   filteredGadgets.map((gadget) => {
                     const child = children.find(c => c.Child_ID === gadget.Child_ID);
+                    const parent = parents.find((p: any) => p.P_No_O_No === child?.P_No_O_No);
                     
                     return (
                       <TableRow key={gadget.Gadget_ID}>
                         <TableCell>
-                          <p className="font-medium">{child?.Child_Name}</p>
+                          <p className="font-medium">{formatChildDisplayName(child?.Child_Name || 'Unknown Child', parent?.Parent_Name, child?.P_No_O_No)}</p>
                           <p className="text-sm text-slate-500">{child?.P_No_O_No}</p>
                         </TableCell>
                         <TableCell>{gadget.Detail_of_Gadgets}</TableCell>
@@ -606,7 +611,7 @@ function GadgetsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; 
                 <SelectContent>
                   {children.map(child => (
                     <SelectItem key={child.Child_ID} value={child.Child_ID.toString()}>
-                      {child.Child_Name}
+                      {formatChildDisplayName(child.Child_Name, parents.find((p: any) => p.P_No_O_No === child.P_No_O_No)?.Parent_Name, child.P_No_O_No)}
                     </SelectItem>
                   ))}
                 </SelectContent>

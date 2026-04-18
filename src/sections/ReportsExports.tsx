@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { useGrantsWithDetails, useAuditLogs, useUsers } from '@/hooks/useDatabase';
 import { useAuth } from '@/hooks/useAuth';
+import { formatChildDisplayName } from '@/lib/utils';
 import { formatCurrency, formatDate } from '@/lib/validation';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
@@ -199,7 +200,11 @@ function PayrollExport() {
                     <TableRow key={index}>
                       <TableCell className="font-mono">{grant.parent?.P_No_O_No}</TableCell>
                       <TableCell>{grant.parent?.Parent_Name}</TableCell>
-                      <TableCell>{grant.child?.Child_Name}</TableCell>
+                      <TableCell>
+                        {grant.child
+                          ? formatChildDisplayName(grant.child.Child_Name, grant.parent?.Parent_Name, grant.parent?.P_No_O_No)
+                          : ''}
+                      </TableCell>
                       <TableCell className="font-mono">{grant.banking?.IBAN}</TableCell>
                       <TableCell>{grant.banking?.Bank_Name_Branch}</TableCell>
                       <TableCell className="font-mono">{formatCurrency(grant.Monthly_Amount)}</TableCell>

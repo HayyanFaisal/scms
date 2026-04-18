@@ -14,6 +14,7 @@ import type {
   SearchResult,
   DisabilityCategory
 } from '@/types';
+import { formatChildDisplayName } from '@/lib/utils';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
@@ -811,7 +812,7 @@ class DatabaseService {
         results.push({
           type: 'child',
           id: child.Child_ID,
-          title: child.Child_Name,
+          title: formatChildDisplayName(child.Child_Name, parent?.Parent_Name, child.P_No_O_No),
           subtitle: `Parent: ${parent?.Parent_Name || 'Unknown'}`,
           status: `Category ${child.Disability_Category}`
         });

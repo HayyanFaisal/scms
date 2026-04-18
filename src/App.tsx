@@ -70,8 +70,18 @@ function App() {
   const [desktopSidebarHovered, setDesktopSidebarHovered] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
   const [notifications, setNotifications] = useState<any[]>([]);
-  const { user, logout, canRead } = useAuth();
+  const { user, logout } = useAuth();
   const isDesktopSidebarVisible = desktopSidebarPinned || desktopSidebarHovered;
+  const isFinanceOfficer = user?.Role === 'Finance Officer';
+
+  const isPageAllowed = (page: Page) => {
+    if (!isFinanceOfficer) return true;
+    return page === 'grants' || page === 'reports';
+  };
+
+  const getDefaultPage = (): Page => {
+    return isFinanceOfficer ? 'grants' : 'dashboard';
+  };
 
   useEffect(() => {
     setIsAuthenticated(!!db.getCurrentUser());
@@ -100,14 +110,29 @@ function App() {
   const handleLogout = () => {
     logout();
     setIsAuthenticated(false);
-    setCurrentPage('dashboard');
+    setCurrentPage(getDefaultPage());
   };
 
   const navigateTo = (page: Page, params?: any) => {
+    if (!isPageAllowed(page)) {
+      setCurrentPage(getDefaultPage());
+      setPageParams(null);
+      setSidebarOpen(false);
+      return;
+    }
+
     setCurrentPage(page);
     setPageParams(params);
     setSidebarOpen(false);
   };
+
+  useEffect(() => {
+    if (!isAuthenticated || !user) return;
+    if (!isPageAllowed(currentPage)) {
+      setCurrentPage(getDefaultPage());
+      setPageParams(null);
+    }
+  }, [isAuthenticated, user, currentPage, isFinanceOfficer]);
 
   const renderPage = () => {
     switch (currentPage) {
@@ -165,7 +190,7 @@ function App() {
       case 'reports':
         return <ReportsExports onNavigate={navigateTo} />;
       default:
-        return <Dashboard onNavigate={navigateTo} />;
+        return isFinanceOfficer ? <GrantGadgetManager onNavigate={navigateTo} /> : <Dashboard onNavigate={navigateTo} />;
     }
   };
 
@@ -173,9 +198,7 @@ function App() {
     return <Login onLogin={handleLogin} />;
   }
 
-  const filteredNav = navigation.filter(item => 
-    !item.roles || item.roles.includes(user?.Role || '')
-  );
+  const filteredNav = navigation.filter(item => isPageAllowed(item.id));
 
   return (
     <div className="futuristic-shell min-h-screen flex text-foreground">
@@ -313,7 +336,7 @@ function App() {
                 </SheetTrigger>
               </Sheet>
               <h2 className="text-lg font-semibold text-blue-950">
-                {filteredNav.find(n => n.id === currentPage || currentPage.startsWith(n.id + '-'))?.label || 'Dashboard'}
+                {filteredNav.find(n => n.id === currentPage || currentPage.startsWith(n.id + '-'))?.label || filteredNav[0]?.label || 'Dashboard'}
               </h2>
             </div>
 

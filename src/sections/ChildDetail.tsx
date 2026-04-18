@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useChildWithDetails } from '@/hooks/useDatabase';
+import { formatChildDisplayName } from '@/lib/utils';
 
 interface ChildDetailProps {
   childId: number;
@@ -38,7 +39,7 @@ export function ChildDetail({ childId, onBack }: ChildDetailProps) {
           Back
         </Button>
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">{child.Child_Name}</h1>
+          <h1 className="text-2xl font-bold text-slate-900">{formatChildDisplayName(child.Child_Name, child.parent?.Parent_Name, child.P_No_O_No)}</h1>
           <p className="text-slate-500">Dependent Child Profile</p>
         </div>
       </div>
@@ -54,6 +55,10 @@ export function ChildDetail({ childId, onBack }: ChildDetailProps) {
           <div>
             <p className="text-sm text-slate-500">Parent P/No</p>
             <p className="font-medium">{child.P_No_O_No}</p>
+          </div>
+          <div>
+            <p className="text-sm text-slate-500">Parent Name</p>
+            <p className="font-medium">{child.parent?.Parent_Name || 'Unknown'}</p>
           </div>
           <div>
             <p className="text-sm text-slate-500">Age</p>
