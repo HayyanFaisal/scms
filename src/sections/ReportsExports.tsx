@@ -43,8 +43,8 @@ export function ReportsExports({ onNavigate }: ReportsExportsProps) {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Reports & Exports</h1>
-          <p className="text-slate-500">Generate reports and export data</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Reports & Exports</h1>
+          <p className="text-slate-500 dark:text-slate-400">Generate reports and export data</p>
         </div>
       </div>
 
@@ -151,20 +151,20 @@ function PayrollExport() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card>
           <CardContent className="pt-6">
-            <p className="text-sm text-slate-500">Total Records</p>
-            <p className="text-2xl font-bold">{filteredGrants.length}</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Total Records</p>
+            <p className="text-2xl font-bold dark:text-slate-100">{filteredGrants.length}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <p className="text-sm text-slate-500">Total Monthly Amount</p>
-            <p className="text-2xl font-bold">{formatCurrency(totalAmount)}</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Total Monthly Amount</p>
+            <p className="text-2xl font-bold dark:text-slate-100">{formatCurrency(totalAmount)}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <p className="text-sm text-slate-500">Export Date</p>
-            <p className="text-2xl font-bold">{new Date().toLocaleDateString()}</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Export Date</p>
+            <p className="text-2xl font-bold dark:text-slate-100">{new Date().toLocaleDateString()}</p>
           </CardContent>
         </Card>
       </div>
@@ -191,7 +191,7 @@ function PayrollExport() {
               <TableBody>
                 {filteredGrants.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-slate-500">
+                    <TableCell colSpan={7} className="text-center py-8 text-slate-500 dark:text-slate-400">
                       No grants found
                     </TableCell>
                   </TableRow>
@@ -236,19 +236,19 @@ function AuditLogView() {
 
   const getActionIcon = (action: string) => {
     switch (action) {
-      case 'CREATE': return <Plus className="w-4 h-4 text-green-600" />;
-      case 'UPDATE': return <Edit className="w-4 h-4 text-blue-600" />;
-      case 'DELETE': return <Trash2 className="w-4 h-4 text-red-600" />;
+      case 'CREATE': return <Plus className="w-4 h-4 text-green-600 dark:text-green-400" />;
+      case 'UPDATE': return <Edit className="w-4 h-4 text-blue-600 dark:text-blue-400" />;
+      case 'DELETE': return <Trash2 className="w-4 h-4 text-red-600 dark:text-red-400" />;
       default: return null;
     }
   };
 
   const getActionColor = (action: string) => {
     switch (action) {
-      case 'CREATE': return 'bg-green-100 text-green-800';
-      case 'UPDATE': return 'bg-blue-100 text-blue-800';
-      case 'DELETE': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100';
+      case 'CREATE': return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400';
+      case 'UPDATE': return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400';
+      case 'DELETE': return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400';
+      default: return 'bg-gray-100 text-gray-800 dark:bg-gray-700/30 dark:text-gray-400';
     }
   };
 
@@ -306,7 +306,7 @@ function AuditLogView() {
               <TableBody>
                 {filteredLogs.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-slate-500">
+                    <TableCell colSpan={6} className="text-center py-8 text-slate-500 dark:text-slate-400">
                       No audit logs found
                     </TableCell>
                   </TableRow>
@@ -315,13 +315,13 @@ function AuditLogView() {
                     <TableRow key={log.Log_ID}>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <Calendar className="w-4 h-4 text-slate-400" />
+                          <Calendar className="w-4 h-4 text-slate-400 dark:text-slate-500" />
                           {formatDate(log.Timestamp)}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <User className="w-4 h-4 text-slate-400" />
+                          <User className="w-4 h-4 text-slate-400 dark:text-slate-500" />
                           {log.Username}
                         </div>
                       </TableCell>
@@ -337,13 +337,13 @@ function AuditLogView() {
                       <TableCell className="font-mono">{log.Record_ID}</TableCell>
                       <TableCell>
                         {log.Old_Values && (
-                          <div className="text-xs text-slate-500 max-w-xs truncate">
-                            <span className="text-red-500">- {log.Old_Values.substring(0, 50)}...</span>
+                          <div className="text-xs text-slate-500 dark:text-slate-400 max-w-xs truncate">
+                            <span className="text-red-500 dark:text-red-400">- {log.Old_Values.substring(0, 50)}...</span>
                           </div>
                         )}
                         {log.New_Values && (
-                          <div className="text-xs text-slate-500 max-w-xs truncate">
-                            <span className="text-green-500">+ {log.New_Values.substring(0, 50)}...</span>
+                          <div className="text-xs text-slate-500 dark:text-slate-400 max-w-xs truncate">
+                            <span className="text-green-500 dark:text-green-400">+ {log.New_Values.substring(0, 50)}...</span>
                           </div>
                         )}
                       </TableCell>

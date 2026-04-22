@@ -107,8 +107,8 @@ export function Dashboard({ onNavigate }: DashboardProps) {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-          <p className="text-slate-500">Welcome back, {user?.Full_Name}</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Dashboard</h1>
+          <p className="text-slate-500 dark:text-slate-400">Welcome back, {user?.Full_Name}</p>
         </div>
         <div className="flex items-center gap-3">
           {canCreate('parents') && (
@@ -208,22 +208,22 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           <CardContent>
             <div className="space-y-4">
               {kpis.grantsByCategory.map((category) => (
-                <div key={category.category} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                <div key={category.category} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
                   <div className="flex items-center gap-3">
                     <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm
-                      ${category.category === 'A' ? 'bg-red-100 text-red-700' : 
-                        category.category === 'B' ? 'bg-amber-100 text-amber-700' : 
-                        'bg-green-100 text-green-700'}`}>
+                      ${category.category === 'A' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' : 
+                        category.category === 'B' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' : 
+                        'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'}`}>
                       {category.category}
                     </div>
                     <div>
-                      <p className="font-medium">Category {category.category}</p>
-                      <p className="text-sm text-slate-500">{category.count} children</p>
+                      <p className="font-medium dark:text-slate-200">Category {category.category}</p>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">{category.count} children</p>
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold">{formatCurrency(category.amount)}</p>
-                    <p className="text-sm text-slate-500">monthly</p>
+                    <p className="font-bold dark:text-slate-100">{formatCurrency(category.amount)}</p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">monthly</p>
                   </div>
                 </div>
               ))}

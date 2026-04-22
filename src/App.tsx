@@ -68,7 +68,7 @@ function App() {
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [pageParams, setPageParams] = useState<any>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [desktopSidebarPinned, setDesktopSidebarPinned] = useState(false);
+  const [desktopSidebarPinned, setDesktopSidebarPinned] = useState(true);
   const [desktopSidebarHovered, setDesktopSidebarHovered] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -328,7 +328,7 @@ function App() {
       {/* Main Content */}
       <main className={`flex-1 transition-[margin] duration-300 ${desktopSidebarPinned ? 'lg:ml-64' : 'lg:ml-0'}`}>
         {/* Header */}
-        <header className="sticky top-0 z-30 bg-white/85 dark:bg-slate-950/85 backdrop-blur-xl border-b border-blue-200/70 dark:border-slate-700/70 px-4 sm:px-6 py-4">
+        <header className="sticky top-0 z-30 bg-white/85 dark:bg-slate-950/85 backdrop-blur-xl border-b border-blue-200/70 dark:border-slate-700/70 px-3 sm:px-4 md:px-5 lg:px-6 xl:px-8 py-3 sm:py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <Sheet>
@@ -338,20 +338,21 @@ function App() {
                   </Button>
                 </SheetTrigger>
               </Sheet>
-              <h2 className="text-lg font-semibold text-blue-950 dark:text-white">
+              <h2 className="text-xl sm:text-2xl md:text-3xl font-semibold text-blue-950 dark:text-white">
                 {filteredNav.find(n => n.id === currentPage || currentPage.startsWith(n.id + '-'))?.label || filteredNav[0]?.label || 'Dashboard'}
               </h2>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3 md:gap-4">
               {/* Dark Mode Toggle */}
               <Button 
                 variant="ghost" 
                 size="icon" 
                 onClick={toggleTheme}
                 title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+                className="text-sm sm:text-base"
               >
-                {theme === 'light' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
+                {theme === 'light' ? <Moon className="w-4 h-4 sm:w-5 sm:h-5" /> : <Sun className="w-4 h-4 sm:w-5 sm:h-5" />}
               </Button>
 
               {/* Notifications */}
@@ -416,8 +417,10 @@ function App() {
         </header>
 
         {/* Page Content */}
-        <div className="section-reveal p-4 sm:p-6 max-w-7xl mx-auto">
-          {renderPage()}
+        <div className="section-reveal p-3 sm:p-4 md:p-5 lg:p-6 xl:p-8 w-full">
+          <div className="w-full max-w-full lg:max-w-[90%] xl:max-w-[85%] 2xl:max-w-[80%] mx-auto">
+            {renderPage()}
+          </div>
         </div>
       </main>
     </div>
