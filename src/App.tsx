@@ -4,14 +4,15 @@ import {
   Users, 
   Wallet, 
   FileSpreadsheet, 
-  Settings, 
   LogOut, 
   Bell,
   Menu,
   ChevronLeft,
   ChevronRight,
   Shield,
-  User
+  User,
+  Moon,
+  Sun
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -31,6 +32,7 @@ import { ChildDetail } from '@/sections/ChildDetail';
 import { GrantGadgetManager } from '@/sections/GrantGadgetManager';
 import { ReportsExports } from '@/sections/ReportsExports';
 import { useAuth } from '@/hooks/useAuth';
+import { useTheme } from '@/hooks/useTheme';
 import { getAllNotifications, getUnreadCount } from '@/lib/notifications';
 import { db } from '@/services/database';
 import './App.css';
@@ -71,6 +73,7 @@ function App() {
   const [notificationCount, setNotificationCount] = useState(0);
   const [notifications, setNotifications] = useState<any[]>([]);
   const { user, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const isDesktopSidebarVisible = desktopSidebarPinned || desktopSidebarHovered;
   const isFinanceOfficer = user?.Role === 'Finance Officer';
 
@@ -113,15 +116,15 @@ function App() {
     setCurrentPage(getDefaultPage());
   };
 
-  const navigateTo = (page: Page, params?: any) => {
-    if (!isPageAllowed(page)) {
+  const navigateTo = (page: Page | string, params?: any) => {
+    if (!isPageAllowed(page as Page)) {
       setCurrentPage(getDefaultPage());
       setPageParams(null);
       setSidebarOpen(false);
       return;
     }
 
-    setCurrentPage(page);
+    setCurrentPage(page as Page);
     setPageParams(params);
     setSidebarOpen(false);
   };
@@ -325,7 +328,7 @@ function App() {
       {/* Main Content */}
       <main className={`flex-1 transition-[margin] duration-300 ${desktopSidebarPinned ? 'lg:ml-64' : 'lg:ml-0'}`}>
         {/* Header */}
-        <header className="sticky top-0 z-30 bg-white/85 backdrop-blur-xl border-b border-blue-200/70 px-4 sm:px-6 py-4">
+        <header className="sticky top-0 z-30 bg-white/85 dark:bg-slate-950/85 backdrop-blur-xl border-b border-blue-200/70 dark:border-slate-700/70 px-4 sm:px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <Sheet>
@@ -335,12 +338,22 @@ function App() {
                   </Button>
                 </SheetTrigger>
               </Sheet>
-              <h2 className="text-lg font-semibold text-blue-950">
+              <h2 className="text-lg font-semibold text-blue-950 dark:text-white">
                 {filteredNav.find(n => n.id === currentPage || currentPage.startsWith(n.id + '-'))?.label || filteredNav[0]?.label || 'Dashboard'}
               </h2>
             </div>
 
             <div className="flex items-center gap-3">
+              {/* Dark Mode Toggle */}
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={toggleTheme}
+                title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+              >
+                {theme === 'light' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
+              </Button>
+
               {/* Notifications */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

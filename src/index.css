@@ -82,6 +82,18 @@
     background-attachment: fixed;
   }
 
+  .dark body {
+    background-image:
+      radial-gradient(circle at 12% 18%, rgba(59, 130, 246, 0.1), transparent 32%),
+      radial-gradient(circle at 86% 0%, rgba(37, 99, 235, 0.15), transparent 28%),
+      linear-gradient(145deg, #0f172a 0%, #1e293b 35%, #1a1f35 100%);
+  }
+
+  .dark {
+    background-color: #0f172a;
+    color-scheme: dark;
+  }
+
   h1, h2, h3, h4, [data-slot="card-title"] {
     font-family: 'Rajdhani', sans-serif;
     letter-spacing: 0.02em;
@@ -97,10 +109,21 @@
     transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
   }
 
+  .dark [data-slot="card"] {
+    background: linear-gradient(160deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.9) 100%);
+    border-color: rgba(59, 130, 246, 0.2);
+    box-shadow: 0 14px 36px -22px rgba(15, 23, 42, 0.8);
+  }
+
   [data-slot="card"]:hover {
     transform: translateY(-3px);
     box-shadow: 0 22px 46px -26px rgba(9, 45, 99, 0.55);
     border-color: rgba(14, 101, 206, 0.35);
+  }
+
+  .dark [data-slot="card"]:hover {
+    box-shadow: 0 22px 46px -26px rgba(15, 23, 42, 0.95);
+    border-color: rgba(59, 130, 246, 0.4);
   }
 
   [data-slot="button"][data-variant="default"] {
@@ -108,9 +131,18 @@
     box-shadow: 0 14px 24px -14px rgba(9, 84, 176, 0.9);
   }
 
+  .dark [data-slot="button"][data-variant="default"] {
+    background-image: linear-gradient(135deg, rgba(37, 99, 235, 1) 0%, rgba(59, 130, 246, 1) 100%);
+    box-shadow: 0 14px 24px -14px rgba(37, 99, 235, 0.8);
+  }
+
   [data-slot="button"][data-variant="default"]:hover {
     transform: translateY(-1px);
     filter: saturate(1.07);
+  }
+
+  .dark [data-slot="button"][data-variant="default"]:hover {
+    filter: saturate(1.15) brightness(1.1);
   }
 
   [data-slot="button"][data-variant="outline"] {
@@ -118,9 +150,20 @@
     background: rgba(255, 255, 255, 0.85);
   }
 
+  .dark [data-slot="button"][data-variant="outline"] {
+    border-color: rgba(59, 130, 246, 0.4);
+    background: rgba(30, 41, 59, 0.8);
+    color: rgb(226, 232, 240);
+  }
+
   [data-slot="button"][data-variant="ghost"]:hover {
     background: rgba(9, 112, 220, 0.1);
     color: rgb(10 58 126);
+  }
+
+  .dark [data-slot="button"][data-variant="ghost"]:hover {
+    background: rgba(59, 130, 246, 0.15);
+    color: rgb(226, 232, 240);
   }
 
   .futuristic-shell {
@@ -138,6 +181,11 @@
     background-size: 30px 30px;
     mask-image: radial-gradient(circle at center, black 35%, transparent 95%);
     pointer-events: none;
+  }
+
+  .dark .futuristic-shell::before {
+    background-image: linear-gradient(rgba(59, 130, 246, 0.08) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(59, 130, 246, 0.08) 1px, transparent 1px);
   }
 
   .section-reveal {
