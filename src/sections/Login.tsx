@@ -7,7 +7,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { User, Lock, Eye, EyeOff, Moon, Sun } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
-import navyLogo from '../../pakistan-navy-logo-png_seeklogo-366309.png';
+import navyLogo from '../images/pakistan-navy-logo-png_seeklogo-366309.png';
 
 interface LoginProps {
   onLogin: () => void;
@@ -60,7 +60,7 @@ export function Login({ onLogin }: LoginProps) {
             <img src={navyLogo} alt="Pakistan Navy logo" className="w-full h-full object-contain" />
           </div>
           <h1 className="text-3xl font-bold text-blue-950 dark:text-slate-100 tracking-wide">Special Children Management System</h1>
-          <p className="text-blue-700/85 dark:text-slate-400 mt-1">Government of Pakistan - Welfare Division</p>
+          <p className="text-blue-700/85 dark:text-slate-400 mt-1">Pakistan Navy - Welfare Division</p>
         </div>
 
         <Card className="shadow-2xl shadow-blue-900/20 dark:shadow-slate-900/40 border-blue-200/70 dark:border-slate-700/70 backdrop-blur-sm bg-white/90 dark:bg-slate-800/90">
@@ -133,7 +133,7 @@ export function Login({ onLogin }: LoginProps) {
         </Card>
 
         <p className="text-center text-sm text-blue-800/75 dark:text-slate-400/75 mt-6">
-          © 2024 Special Children Management System. All rights reserved.
+          © 2026 Special Children Management System. All rights reserved.
         </p>
       </div>
     </div>

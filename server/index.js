@@ -15,6 +15,14 @@ const __dirname = path.dirname(__filename);
 const uploadsRoot = path.join(__dirname, 'uploads');
 const parentDocUploadDir = path.join(uploadsRoot, 'parent-docs');
 
+// ===== ADD THESE IMPORTS AT THE TOP (after existing imports) =====
+import axios from 'axios';
+
+// Portal sync configuration
+const PORTAL_API_URL = process.env.PORTAL_API_URL || 'http://127.0.0.1:4000';
+const PORTAL_API_KEY = process.env.PORTAL_API_KEY;
+
+
 await fs.mkdir(parentDocUploadDir, { recursive: true });
 
 const allowedImageMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/tiff']);
@@ -690,6 +698,222 @@ app.post('/api/seed-sample', async (_req, res) => {
 
 await ensureSchema();
 
+
+// =============================================================================
+// PARENT PORTAL SYNC - Admin Approval Bridge
+// =============================================================================
+
+// AllApproval:
+const getAllApprovals = async () => {
+    try {
+        const response = await axios.get(`${PORTAL_API_URL}/api/sync/all-requests`, {
+            headers: { 'x-api-key': PORTAL_API_KEY },
+            timeout: 5000
+        });
+        return response.data;
+    } catch (error) {
+        console.error('[Portal Sync] Failed to fetch approvals:', error.message);
+        return [];
+    }
+};
+
+// getPendingApprovals for the approve action 
+const getPendingApprovals = async () => {
+    try {
+        const response = await axios.get(`${PORTAL_API_URL}/api/sync/pending`, {
+            headers: { 'x-api-key': PORTAL_API_KEY },
+            timeout: 5000
+        });
+        return response.data;
+    } catch (error) {
+        console.error('[Portal Sync] Failed to fetch pending:', error.message);
+        return [];
+    }
+};
+
+// Helper: sync admin-created parent TO portal
+const syncParentToPortal = async (parentData, adminId) => {
+    try {
+        const response = await axios.post(
+            `${PORTAL_API_URL}/api/sync/admin-created-parent`,
+            {
+                pNoONo: parentData.P_No_O_No,
+                parentName: parentData.Parent_Name,
+                rankRate: parentData.Rank_Rate,
+                unit: parentData.Unit,
+                contactNo: parentData.Contact_No || null,
+                cnic: parentData.Parent_CNIC,
+                serviceStatus: parentData.Service_Status,
+                email: parentData.Email || `${parentData.P_No_O_No}@system.local`,
+                adminId: adminId || 1
+            },
+            {
+                headers: { 'x-api-key': PORTAL_API_KEY },
+                timeout: 5000
+            }
+        );
+        return response.data;
+    } catch (error) {
+        console.error('[Portal Sync] Failed to sync parent:', error.message);
+        throw new Error('Portal sync failed');
+    }
+};
+
+// GET: List pending approval requests from parent portal
+app.get('/api/admin/pending-approvals', async (req, res) => {
+    try {
+        const approvals = await getAllApprovals();
+        res.json(approvals);
+    } catch (error) {
+        sendError(res, error, 'Failed to fetch approvals');
+    }
+});
+
+// POST: Approve or reject a request
+app.post('/api/admin/approve-request', async (req, res) => {
+    const { requestId, action, notes } = req.body;
+
+    if (!requestId || !['approve', 'reject'].includes(action)) {
+        res.status(400).json({ message: 'Invalid request. Need requestId and action (approve/reject)' });
+        return;
+    }
+
+    try {
+        // Get fresh pending list to find the request
+        const approvals = await getPendingApprovals();
+        const request = approvals.find(a => a.request_id === Number(requestId));
+
+        if (!request) {
+            res.status(404).json({ message: 'Request not found or already processed' });
+            return;
+        }
+
+        let mainDbChildId = null;
+
+        if (action === 'approve') {
+            // Insert into MAIN database (pnba) - this is the only write path
+            if (request.request_type === 'parent_registration') {
+                // Check if parent already exists in main DB
+                const existing = await query(
+                    'SELECT P_No_O_No FROM Parent_Beneficiary WHERE P_No_O_No = ?',
+                    [request.p_no_o_no]
+                );
+
+                if (existing.length === 0) {
+                    const payload = request.payload;
+                    await query(
+                        `INSERT INTO Parent_Beneficiary 
+                         (P_No_O_No, Parent_Name, Rank_Rate, Unit, Admin_Authority, Service_Status, Parent_CNIC)
+                         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                        [
+                            request.p_no_o_no,
+                            payload.parentName,
+                            payload.rankRate,
+                            payload.unit,
+                            payload.adminAuthority || null, // Admin_Authority not in portal payload
+                            payload.serviceStatus,
+                            payload.cnic
+                        ]
+                    );
+                }
+            } else if (request.request_typeA === 'child_addition') {
+                const payload = request.payload;
+                const result = await query(
+                    `INSERT INTO Dependent_Children 
+                     (P_No_O_No, Child_Name, Age, CNIC_BForm_No, Disease_Disability, 
+                      Disability_Category, School)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                        request.p_no_o_no,
+                        payload.childName,
+                        payload.age,
+                        payload.cnicBformNo,
+                        payload.diseaseDisability,
+                        payload.disabilityCategory,
+                        payload.school
+                    ]
+                );
+                mainDbChildId = result.insertId;
+            }
+        }
+
+        // Notify portal system of the decision
+        await axios.post(
+            `${PORTAL_API_URL}/api/sync/approval`,
+            {
+                requestId: Number(requestId),
+                action,
+                adminNotes: notes || '',
+                mainDbChildId
+            },
+            {
+                headers: { 'x-api-key': PORTAL_API_KEY },
+                timeout: 5000
+            }
+        );
+
+        res.json({ success: true, message: `Request ${action}d successfully` });
+
+    } catch (error) {
+        sendError(res, error, 'Approval processing failed');
+    }
+});
+
+// POST: Create parent in main DB + sync to portal (admin action)
+app.post('/api/admin/parents-with-portal', async (req, res) => {
+    try {
+        const { P_No_O_No, Parent_Name, Rank_Rate, Unit, Admin_Authority, Service_Status, Parent_CNIC, Email } = req.body;
+
+        // Insert into main DB first
+        await query(
+            `INSERT INTO Parent_Beneficiary
+             (P_No_O_No, Parent_Name, Rank_Rate, Unit, Admin_Authority, Service_Status, Parent_CNIC)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [P_No_O_No, Parent_Name, Rank_Rate, Unit, Admin_Authority || null, Service_Status, Parent_CNIC]
+        );
+
+        // Sync to portal (creates login credentials)
+        let portalData = null;
+        try {
+            portalData = await syncParentToPortal({
+                P_No_O_No, Parent_Name, Rank_Rate, Unit,
+                Contact_No: null, Parent_CNIC, Service_Status, Email
+            }, 1); // adminId = 1 for now, replace with req.user.id when you have auth
+        } catch (syncErr) {
+            console.error('[Portal Sync] Error:', syncErr.message);
+        }
+
+        const newParent = await getParentRecord(P_No_O_No);
+
+        res.status(201).json({
+            ...newParent,
+            portalAccess: portalData ? {
+                loginId: P_No_O_No,
+                defaultPassword: portalData.defaultPassword,
+                note: 'Share these credentials securely with the parent'
+            } : {
+                note: 'Portal sync failed - retry from admin panel'
+            }
+        });
+
+    } catch (error) {
+        sendError(res, error);
+    }
+});
+
+// GET: Check portal connection health
+app.get('/api/admin/portal-health', async (_req, res) => {
+    try {
+        const response = await axios.get(`${PORTAL_API_URL}/health`, { timeout: 3000 });
+        res.json({ connected: true, portal: response.data });
+    } catch (error) {
+        res.status(503).json({ connected: false, error: error.message });
+    }
+});
+//===============================================================================================================
+
 app.listen(port, () => {
   console.log(`API server running at http://localhost:${port}`);
+  console.log(`[Portal Sync] Connected to: ${PORTAL_API_URL}`);
 });
+

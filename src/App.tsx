@@ -12,7 +12,8 @@ import {
   Shield,
   User,
   Moon,
-  Sun
+  Sun,
+  Inbox
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -31,6 +32,7 @@ import { ChildForm } from '@/sections/ChildForm';
 import { ChildDetail } from '@/sections/ChildDetail';
 import { GrantGadgetManager } from '@/sections/GrantGadgetManager';
 import { ReportsExports } from '@/sections/ReportsExports';
+import RequestsTab from '@/components/Admin/RequestsTab';
 import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
 import { getAllNotifications, getUnreadCount } from '@/lib/notifications';
@@ -47,7 +49,8 @@ type Page =
   | 'child-detail'
   | 'grants'
   | 'reports'
-  | 'settings';
+  | 'settings'
+  | 'requests';
 
 interface NavigationItem {
   id: Page;
@@ -61,6 +64,7 @@ const navigation: NavigationItem[] = [
   { id: 'parents', label: 'Beneficiaries', icon: Users },
   { id: 'grants', label: 'Grants & Gadgets', icon: Wallet },
   { id: 'reports', label: 'Reports', icon: FileSpreadsheet },
+  { id: 'requests', label: 'Requests', icon: Inbox }, 
 ];
 
 function App() {
@@ -72,6 +76,7 @@ function App() {
   const [desktopSidebarHovered, setDesktopSidebarHovered] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
   const [notifications, setNotifications] = useState<any[]>([]);
+  const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const isDesktopSidebarVisible = desktopSidebarPinned || desktopSidebarHovered;
@@ -104,6 +109,24 @@ function App() {
         clearInterval(interval);
       };
     }
+  }, [isAuthenticated]);
+  // ADD THIS useEffect for fetching pending requests count
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    
+    const fetchPendingCount = async () => {
+      try {
+        const res = await fetch('/api/admin/pending-approvals');
+        const data = await res.json();
+        setPendingRequestCount(data.filter((r: any) => r.status === 'pending').length);
+      } catch (err) {
+        // Portal might not be running, silently fail
+      }
+    };
+
+    fetchPendingCount();
+    const interval = setInterval(fetchPendingCount, 30000);
+    return () => clearInterval(interval);
   }, [isAuthenticated]);
 
   const handleLogin = () => {
@@ -192,6 +215,8 @@ function App() {
         return <GrantGadgetManager onNavigate={navigateTo} />;
       case 'reports':
         return <ReportsExports onNavigate={navigateTo} />;
+      case 'requests':  // <-- ADD THIS
+        return <RequestsTab />;
       default:
         return isFinanceOfficer ? <GrantGadgetManager onNavigate={navigateTo} /> : <Dashboard onNavigate={navigateTo} />;
     }
@@ -233,23 +258,29 @@ function App() {
           </div>
         </div>
 
-        <nav className="flex-1 p-4 space-y-1 overflow-auto">
+                <nav className="flex-1 p-4 space-y-1 overflow-auto">
           {filteredNav.map((item) => {
             const Icon = item.icon;
             const isActive = currentPage === item.id || currentPage.startsWith(item.id + '-');
+            const isRequests = item.id === 'requests';
             
             return (
               <button
                 key={item.id}
                 onClick={() => navigateTo(item.id)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all duration-200
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all duration-200 relative
                   ${isActive 
                     ? 'bg-gradient-to-r from-sky-400/25 to-blue-500/20 text-white font-semibold shadow-sm shadow-blue-950/30' 
                     : 'text-blue-100/85 hover:bg-white/10 hover:text-white'
                   }`}
               >
                 <Icon className="w-5 h-5" />
-                {item.label}
+                <span className="flex-1">{item.label}</span>
+                {isRequests && pendingRequestCount > 0 && (
+                  <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[20px] text-center">
+                    {pendingRequestCount}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -301,23 +332,29 @@ function App() {
             </div>
           </div>
 
-          <nav className="p-4 space-y-1">
+                    <nav className="p-4 space-y-1">
             {filteredNav.map((item) => {
               const Icon = item.icon;
               const isActive = currentPage === item.id;
+              const isRequests = item.id === 'requests';
               
               return (
                 <button
                   key={item.id}
                   onClick={() => navigateTo(item.id)}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all duration-200
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all duration-200 relative
                     ${isActive 
                       ? 'bg-gradient-to-r from-sky-400/25 to-blue-500/20 text-white font-semibold shadow-sm shadow-blue-950/30' 
                       : 'text-blue-100/85 hover:bg-white/10 hover:text-white'
                     }`}
                 >
                   <Icon className="w-5 h-5" />
-                  {item.label}
+                  <span className="flex-1">{item.label}</span>
+                  {isRequests && pendingRequestCount > 0 && (
+                    <span className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[20px] text-center">
+                      {pendingRequestCount}
+                    </span>
+                  )}
                 </button>
               );
             })}
