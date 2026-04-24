@@ -111,9 +111,20 @@ CREATE TABLE Child_Gadgets (
 
 7. **Run the App:**
 	- Start everything with:
+  Go to scms
 	  ```sh
 	  npm run dev
 	  ```
+
+  Go to scms\parent-portal
+	  ```sh
+	  npm start
+	  ```  
+
+  Go to scms\parent-portal\client
+	  ```sh
+	  npm run dev
+	  ```   
 
 The launcher starts the API on [http://localhost:3001](http://localhost:3001) and the Vite app on [http://localhost:5173](http://localhost:5173).
 
