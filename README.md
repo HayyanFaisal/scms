@@ -97,6 +97,9 @@ CREATE TABLE Child_Gadgets (
 );
   ```
 
+
+
+
 5. **Configure the App:**
 	- Update the `.env` file with your MySQL password:
 	  ```
@@ -105,6 +108,97 @@ CREATE TABLE Child_Gadgets (
 
 6. **Install Dependencies:**
 	- In the `scms` folder, run:
+	  ```sh
+	  npm install
+	  ```
+
+Table for Parent Portal
+```sh
+-- Create the isolated portal database
+CREATE DATABASE IF NOT EXISTS scms_portal;
+USE scms_portal;
+
+-- Parent registrations (both self-registered and admin-created)
+CREATE TABLE Portal_Users (
+    user_id INT PRIMARY KEY AUTO_INCREMENT,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    parent_name VARCHAR(100) NOT NULL,
+    p_no_o_no VARCHAR(50) UNIQUE NOT NULL,
+    rank_rate VARCHAR(50),
+    unit VARCHAR(100),
+    contact_no VARCHAR(50),
+    cnic VARCHAR(20) UNIQUE,
+    service_status ENUM('Serving', 'Retired', 'Expired'),
+    
+    -- Approval workflow
+    status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
+    admin_notes TEXT,
+    
+    -- Origin tracking
+    origin ENUM('self_registered', 'admin_created') NOT NULL DEFAULT 'self_registered',
+    created_by_admin_id INT NULL,
+    default_password_changed BOOLEAN DEFAULT FALSE,
+    
+    -- Security
+    email_verified BOOLEAN DEFAULT FALSE,
+    verification_token VARCHAR(255),
+    reset_token VARCHAR(255),
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    approved_at TIMESTAMP NULL,
+    approved_by VARCHAR(100) NULL
+);
+
+-- Children registered by parents
+CREATE TABLE Portal_Children (
+    child_id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT,
+    child_name VARCHAR(100) NOT NULL,
+    age DECIMAL(4,1),
+    cnic_bform_no VARCHAR(20) UNIQUE,
+    disease_disability TEXT,
+    disability_category CHAR(1),
+    school VARCHAR(100),
+    sync_status ENUM('pending', 'synced', 'failed') DEFAULT 'pending',
+    main_db_child_id INT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES Portal_Users(user_id) ON DELETE CASCADE
+);
+
+-- Approval requests
+CREATE TABLE Approval_Requests (
+    request_id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT,
+    request_type ENUM('parent_registration', 'child_addition', 'profile_update'),
+    payload JSON NOT NULL,
+    status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
+    admin_response TEXT,
+    requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    responded_at TIMESTAMP NULL,
+    FOREIGN KEY (user_id) REFERENCES Portal_Users(user_id)
+);
+
+-- Audit log
+CREATE TABLE Portal_Audit_Log (
+    log_id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT,
+    action VARCHAR(50),
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    details JSON,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Index for fast lookups
+CREATE INDEX idx_pno ON Portal_Users(p_no_o_no);
+CREATE INDEX idx_status ON Portal_Users(status);
+CREATE INDEX idx_origin ON Portal_Users(origin);
+
+
+```
+6.5. **Install Dependencies:**
+	- In the `scms\parent-portal` folder, run:
 	  ```sh
 	  npm install
 	  ```
