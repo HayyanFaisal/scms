@@ -36,26 +36,117 @@ const authLimiter = rateLimit({
 });
 
 // Database pool
-const pool = mysql.createPool({
+const portalDbConfig = {
     host: process.env.PORTAL_DB_HOST || '127.0.0.1',
     user: process.env.PORTAL_DB_USER || 'root',
     password: process.env.PORTAL_DB_PASSWORD || '',
-    database: process.env.PORTAL_DB_NAME || 'scms_portal',
+    database: process.env.PORTAL_DB_NAME || 'scms_portal'
+};
+
+const pool = mysql.createPool({
+    host: portalDbConfig.host,
+    user: portalDbConfig.user,
+    password: portalDbConfig.password,
+    database: portalDbConfig.database,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
 });
 
-// Verify database connection
-pool.getConnection()
-    .then(conn => {
-        console.log('✅ Connected to portal database:', process.env.PORTAL_DB_NAME);
-        conn.release();
-    })
-    .catch(err => {
-        console.error('❌ Database connection failed:', err.message);
-        process.exit(1);
+async function ensurePortalDatabaseAndSchema() {
+    const adminConnection = await mysql.createConnection({
+        host: portalDbConfig.host,
+        user: portalDbConfig.user,
+        password: portalDbConfig.password
     });
+
+    try {
+        await adminConnection.query(`CREATE DATABASE IF NOT EXISTS \`${portalDbConfig.database}\``);
+        await adminConnection.query(`USE \`${portalDbConfig.database}\``);
+
+        await adminConnection.query(
+            `CREATE TABLE IF NOT EXISTS Portal_Users (
+                user_id INT AUTO_INCREMENT PRIMARY KEY,
+                email VARCHAR(255) NOT NULL UNIQUE,
+                password_hash VARCHAR(255) NOT NULL,
+                parent_name VARCHAR(100) NOT NULL,
+                p_no_o_no VARCHAR(50) NOT NULL UNIQUE,
+                rank_rate VARCHAR(50),
+                unit VARCHAR(100),
+                contact_no VARCHAR(50),
+                cnic VARCHAR(20) NOT NULL,
+                service_status VARCHAR(20),
+                verification_token VARCHAR(128),
+                status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
+                origin ENUM('self_registered', 'admin_created') NOT NULL DEFAULT 'self_registered',
+                created_by_admin_id VARCHAR(100),
+                default_password_changed BOOLEAN NOT NULL DEFAULT FALSE,
+                approved_at DATETIME NULL,
+                approved_by VARCHAR(100) NULL,
+                admin_notes TEXT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_portal_users_pno (p_no_o_no),
+                INDEX idx_portal_users_status (status)
+            ) ENGINE=InnoDB`
+        );
+
+        await adminConnection.query(
+            `CREATE TABLE IF NOT EXISTS Portal_Children (
+                child_id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                child_name VARCHAR(100) NOT NULL,
+                age DECIMAL(4,1),
+                cnic_bform_no VARCHAR(20),
+                disease_disability TEXT,
+                disability_category CHAR(1),
+                school VARCHAR(100),
+                sync_status ENUM('pending', 'synced', 'rejected') NOT NULL DEFAULT 'pending',
+                main_db_child_id INT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_portal_children_user (user_id),
+                CONSTRAINT fk_portal_children_user
+                  FOREIGN KEY (user_id) REFERENCES Portal_Users(user_id)
+                  ON DELETE CASCADE
+            ) ENGINE=InnoDB`
+        );
+
+        await adminConnection.query(
+            `CREATE TABLE IF NOT EXISTS Approval_Requests (
+                request_id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                request_type ENUM('parent_registration', 'child_addition') NOT NULL,
+                payload JSON NULL,
+                status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
+                admin_response TEXT NULL,
+                requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                responded_at DATETIME NULL,
+                INDEX idx_approval_requests_status (status),
+                INDEX idx_approval_requests_user (user_id),
+                CONSTRAINT fk_approval_requests_user
+                  FOREIGN KEY (user_id) REFERENCES Portal_Users(user_id)
+                  ON DELETE CASCADE
+            ) ENGINE=InnoDB`
+        );
+
+        await adminConnection.query(
+            `CREATE TABLE IF NOT EXISTS Portal_Audit_Log (
+                log_id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NULL,
+                action VARCHAR(100) NOT NULL,
+                ip_address VARCHAR(64),
+                details JSON NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_portal_audit_user (user_id),
+                INDEX idx_portal_audit_action (action),
+                CONSTRAINT fk_portal_audit_user
+                  FOREIGN KEY (user_id) REFERENCES Portal_Users(user_id)
+                  ON DELETE SET NULL
+            ) ENGINE=InnoDB`
+        );
+    } finally {
+        await adminConnection.end();
+    }
+}
 
 // JWT middleware
 const authenticateToken = (req, res, next) => {
@@ -125,7 +216,7 @@ app.post('/api/auth/signup', authLimiter, async (req, res) => {
             `INSERT INTO Approval_Requests (user_id, request_type, payload) 
              VALUES (?, 'parent_registration', ?)`,
             [result.insertId, JSON.stringify({
-                email, parentName, pNoONo, rankRate, unit, adminAuthority, contactNo, cnic, serviceStatus,
+                email, parentName, pNoONo, rankRate, unit, contactNo, cnic, serviceStatus,
                 origin: 'self_registered'
             })]
         );
@@ -407,6 +498,106 @@ app.post('/api/sync/admin-created-parent', async (req, res) => {
     }
 });
 
+app.post('/api/sync/admin-child', async (req, res) => {
+    const apiKey = req.headers['x-api-key'];
+    if (apiKey !== process.env.ADMIN_API_KEY) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const {
+        mainDbChildId,
+        pNoONo,
+        childName,
+        age,
+        cnicBformNo,
+        diseaseDisability,
+        disabilityCategory,
+        school
+    } = req.body;
+
+    if (!mainDbChildId || !pNoONo || !childName) {
+        return res.status(400).json({ error: 'Missing required child sync fields' });
+    }
+
+    try {
+        const [users] = await pool.execute(
+            'SELECT user_id FROM Portal_Users WHERE p_no_o_no = ? LIMIT 1',
+            [pNoONo]
+        );
+
+        if (users.length === 0) {
+            return res.status(404).json({ error: 'Parent not found in portal users' });
+        }
+
+        const userId = users[0].user_id;
+
+        const [existing] = await pool.execute(
+            'SELECT child_id FROM Portal_Children WHERE main_db_child_id = ? LIMIT 1',
+            [mainDbChildId]
+        );
+
+        if (existing.length > 0) {
+            await pool.execute(
+                `UPDATE Portal_Children
+                 SET user_id = ?, child_name = ?, age = ?, cnic_bform_no = ?, disease_disability = ?,
+                     disability_category = ?, school = ?, sync_status = 'synced'
+                 WHERE main_db_child_id = ?`,
+                [
+                    userId,
+                    childName,
+                    age || null,
+                    cnicBformNo || null,
+                    diseaseDisability || null,
+                    disabilityCategory || null,
+                    school || null,
+                    mainDbChildId
+                ]
+            );
+        } else {
+            await pool.execute(
+                `INSERT INTO Portal_Children
+                 (user_id, child_name, age, cnic_bform_no, disease_disability, disability_category, school, sync_status, main_db_child_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, 'synced', ?)`,
+                [
+                    userId,
+                    childName,
+                    age || null,
+                    cnicBformNo || null,
+                    diseaseDisability || null,
+                    disabilityCategory || null,
+                    school || null,
+                    mainDbChildId
+                ]
+            );
+        }
+
+        return res.json({ success: true });
+    } catch (error) {
+        console.error('Admin child sync error:', error);
+        return res.status(500).json({ error: 'Child sync failed' });
+    }
+});
+
+app.delete('/api/sync/admin-child/:mainDbChildId', async (req, res) => {
+    const apiKey = req.headers['x-api-key'];
+    if (apiKey !== process.env.ADMIN_API_KEY) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    try {
+        const mainDbChildId = Number(req.params.mainDbChildId);
+        if (!mainDbChildId) {
+            return res.status(400).json({ error: 'Invalid mainDbChildId' });
+        }
+
+        await pool.execute('DELETE FROM Portal_Children WHERE main_db_child_id = ?', [mainDbChildId]);
+        return res.status(204).send();
+    } catch (error) {
+        console.error('Admin child delete sync error:', error);
+        return res.status(500).json({ error: 'Child delete sync failed' });
+    }
+});
+
 app.get('/api/sync/pending', async (req, res) => {
     const apiKey = req.headers['x-api-key'];
     if (apiKey !== process.env.ADMIN_API_KEY) {
@@ -466,6 +657,7 @@ app.post('/api/sync/approval', async (req, res) => {
         }
 
         const request = requests[0];
+        const payload = typeof request.payload === 'string' ? JSON.parse(request.payload) : (request.payload || {});
 
         if (action === 'approve') {
             if (request.request_type === 'parent_registration') {
@@ -475,8 +667,8 @@ app.post('/api/sync/approval', async (req, res) => {
                 );
             } else if (request.request_type === 'child_addition') {
                 await pool.execute(
-                    'UPDATE Portal_Children SET sync_status = ?, main_db_child_id = ? WHERE user_id = ?',
-                    ['synced', mainDbChildId, request.user_id]
+                    'UPDATE Portal_Children SET sync_status = ?, main_db_child_id = ? WHERE child_id = ? AND user_id = ?',
+                    ['synced', mainDbChildId, Number(payload.childId) || 0, request.user_id]
                 );
             }
         } else {
@@ -506,11 +698,26 @@ app.get('/health', (req, res) => {
 const PORT = process.env.PORTAL_PORT || 4000;
 const HOST = process.env.PORTAL_HOST || '127.0.0.1';
 
-app.listen(PORT, HOST, () => {
-    console.log(`========================================`);
-    console.log(`🚀 Parent Portal API running`);
-    console.log(`📡 URL: http://${HOST}:${PORT}`);
-    console.log(`🗄️  Database: ${process.env.PORTAL_DB_NAME}`);
-    console.log(`🔒 Mode: ${process.env.PORTAL_JWT_SECRET ? 'SECURED' : 'UNSECURED'}`);
-    console.log(`========================================`);
-});
+async function startServer() {
+    try {
+        await ensurePortalDatabaseAndSchema();
+
+        const conn = await pool.getConnection();
+        conn.release();
+        console.log('✅ Connected to portal database:', portalDbConfig.database);
+
+        app.listen(PORT, HOST, () => {
+            console.log(`========================================`);
+            console.log(`🚀 Parent Portal API running`);
+            console.log(`📡 URL: http://${HOST}:${PORT}`);
+            console.log(`🗄️  Database: ${portalDbConfig.database}`);
+            console.log(`🔒 Mode: ${process.env.PORTAL_JWT_SECRET ? 'SECURED' : 'UNSECURED'}`);
+            console.log(`========================================`);
+        });
+    } catch (err) {
+        console.error('❌ Database connection failed:', err.message);
+        process.exit(1);
+    }
+}
+
+startServer();

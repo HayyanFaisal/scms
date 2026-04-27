@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext'
 import ChildrenList from './ChildrenList'
 import AddChildForm from './AddChildForm'
 import Profile from './Profile'
+import Documents from './Documents'
 import StatusBadge from './StatusBadge'
 import './Dashboard.css'
 
@@ -14,6 +15,7 @@ const Dashboard = () => {
     { path: '/dashboard', label: 'Overview', icon: '📊' },
     { path: '/dashboard/children', label: 'My Children', icon: '👶' },
     { path: '/dashboard/add-child', label: 'Add Child', icon: '➕' },
+    { path: '/dashboard/documents', label: 'Documents', icon: '🗂️' },
     { path: '/dashboard/profile', label: 'Profile', icon: '👤' },
   ]
 
@@ -52,6 +54,7 @@ const Dashboard = () => {
           <Route path="/" element={<Overview />} />
           <Route path="/children" element={<ChildrenList />} />
           <Route path="/add-child" element={<AddChildForm />} />
+          <Route path="/documents" element={<Documents />} />
           <Route path="/profile" element={<Profile />} />
         </Routes>
       </main>

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { db } from '@/services/database'
 import './RequestsTab.css'
 
 const RequestsTab = () => {
@@ -41,6 +42,7 @@ const RequestsTab = () => {
             if (res.ok) {
                 setSelectedRequest(null)
                 setAdminNotes('')
+                await db.refreshFromServer()
                 fetchRequests()
             } else {
                 const data = await res.json()
@@ -63,6 +65,7 @@ const RequestsTab = () => {
                 body: JSON.stringify({ requestId, action: 'reject', notes: adminNotes || 'Rejected by admin' })
             })
             setSelectedRequest(null)
+            await db.refreshFromServer()
             fetchRequests()
         } catch (err) {
             alert('Network error')

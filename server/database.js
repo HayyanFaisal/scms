@@ -54,6 +54,81 @@ export async function ensureSchema() {
   const connection = await pool.getConnection();
 
   try {
+    // Create core tables first so follow-up FKs always have valid targets.
+    await connection.query(
+      `CREATE TABLE IF NOT EXISTS Parent_Beneficiary (
+        P_No_O_No VARCHAR(50) PRIMARY KEY,
+        Parent_Name VARCHAR(100) NOT NULL,
+        Rank_Rate VARCHAR(50),
+        Unit VARCHAR(100),
+        Admin_Authority VARCHAR(100),
+        Service_Status ENUM('Serving', 'Retired', 'Expired'),
+        Parent_CNIC VARCHAR(20)
+      )`
+    );
+
+    await connection.query(
+      `CREATE TABLE IF NOT EXISTS Document_Tracking (
+        Doc_ID INT PRIMARY KEY AUTO_INCREMENT,
+        P_No_O_No VARCHAR(50),
+        Letter_Reference VARCHAR(255),
+        Contact_No VARCHAR(50),
+        Almirah_No VARCHAR(20),
+        File_No VARCHAR(20),
+        FOREIGN KEY (P_No_O_No) REFERENCES Parent_Beneficiary(P_No_O_No)
+      )`
+    );
+
+    await connection.query(
+      `CREATE TABLE IF NOT EXISTS Banking_Details (
+        Account_ID INT PRIMARY KEY AUTO_INCREMENT,
+        P_No_O_No VARCHAR(50),
+        Account_Title VARCHAR(100),
+        IBAN VARCHAR(50) UNIQUE,
+        Bank_Name_Branch VARCHAR(255),
+        FOREIGN KEY (P_No_O_No) REFERENCES Parent_Beneficiary(P_No_O_No)
+      )`
+    );
+
+    await connection.query(
+      `CREATE TABLE IF NOT EXISTS Dependent_Children (
+        Child_ID INT PRIMARY KEY AUTO_INCREMENT,
+        P_No_O_No VARCHAR(50),
+        Child_Name VARCHAR(100),
+        Age DECIMAL(4,1),
+        CNIC_BForm_No VARCHAR(20) UNIQUE,
+        Disease_Disability TEXT,
+        Disability_Category CHAR(1),
+        School VARCHAR(100),
+        FOREIGN KEY (P_No_O_No) REFERENCES Parent_Beneficiary(P_No_O_No)
+      )`
+    );
+
+    await connection.query(
+      `CREATE TABLE IF NOT EXISTS Monthly_Grants (
+        Grant_ID INT PRIMARY KEY AUTO_INCREMENT,
+        Child_ID INT,
+        Monthly_Amount DECIMAL(10,2),
+        Total_CFY_Amount DECIMAL(10,2),
+        Approved_From DATE,
+        Approved_To DATE,
+        FOREIGN KEY (Child_ID) REFERENCES Dependent_Children(Child_ID)
+      )`
+    );
+
+    await connection.query(
+      `CREATE TABLE IF NOT EXISTS Child_Gadgets (
+        Gadget_ID INT PRIMARY KEY AUTO_INCREMENT,
+        Child_ID INT,
+        Detail_of_Gadgets VARCHAR(255),
+        Base_Cost DECIMAL(10,2),
+        Tax_18_Percent DECIMAL(10,2) AS (Base_Cost * 0.18),
+        Total_Cost DECIMAL(10,2) AS (Base_Cost * 1.18),
+        Acquisition_Type ENUM('Off the Shelf', 'Customized', 'Reimbursed'),
+        FOREIGN KEY (Child_ID) REFERENCES Dependent_Children(Child_ID)
+      )`
+    );
+
     await connection.query(
       `CREATE TABLE IF NOT EXISTS Parent_Document_Files (
         Document_File_ID INT AUTO_INCREMENT PRIMARY KEY,

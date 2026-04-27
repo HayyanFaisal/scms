@@ -442,7 +442,11 @@ app.post('/api/children', async (req, res) => {
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [P_No_O_No, Child_Name, Age, CNIC_BForm_No, Disease_Disability, Disability_Category, School]
     );
-    res.status(201).json(await getChildRecord(result.insertId));
+    const child = await getChildRecord(result.insertId);
+    if (child) {
+      await syncChildToPortal(child);
+    }
+    res.status(201).json(child);
   } catch (error) {
     sendError(res, error);
   }
@@ -458,7 +462,11 @@ app.put('/api/children/:childId', async (req, res) => {
        WHERE Child_ID = ?`,
       [P_No_O_No, Child_Name, Age, CNIC_BForm_No, Disease_Disability, Disability_Category, School, childId]
     );
-    res.json(await getChildRecord(childId));
+    const child = await getChildRecord(childId);
+    if (child) {
+      await syncChildToPortal(child);
+    }
+    res.json(child);
   } catch (error) {
     sendError(res, error);
   }
@@ -467,11 +475,15 @@ app.put('/api/children/:childId', async (req, res) => {
 app.delete('/api/children/:childId', async (req, res) => {
   try {
     const childId = Number(req.params.childId);
+    const existing = await getChildRecord(childId);
     await transaction(async (connection) => {
       await connection.query('DELETE FROM Child_Gadgets WHERE Child_ID = ?', [childId]);
       await connection.query('DELETE FROM Monthly_Grants WHERE Child_ID = ?', [childId]);
       await connection.query('DELETE FROM Dependent_Children WHERE Child_ID = ?', [childId]);
     });
+    if (existing) {
+      await deleteChildFromPortal(existing.Child_ID);
+    }
     res.status(204).send();
   } catch (error) {
     sendError(res, error);
@@ -759,6 +771,41 @@ const syncParentToPortal = async (parentData, adminId) => {
     }
 };
 
+const syncChildToPortal = async (childData) => {
+  try {
+    await axios.post(
+      `${PORTAL_API_URL}/api/sync/admin-child`,
+      {
+        mainDbChildId: childData.Child_ID,
+        pNoONo: childData.P_No_O_No,
+        childName: childData.Child_Name,
+        age: childData.Age,
+        cnicBformNo: childData.CNIC_BForm_No,
+        diseaseDisability: childData.Disease_Disability,
+        disabilityCategory: childData.Disability_Category,
+        school: childData.School
+      },
+      {
+        headers: { 'x-api-key': PORTAL_API_KEY },
+        timeout: 5000
+      }
+    );
+  } catch (error) {
+    console.error('[Portal Sync] Failed to sync child:', error.message);
+  }
+};
+
+const deleteChildFromPortal = async (childId) => {
+  try {
+    await axios.delete(`${PORTAL_API_URL}/api/sync/admin-child/${childId}`, {
+      headers: { 'x-api-key': PORTAL_API_KEY },
+      timeout: 5000
+    });
+  } catch (error) {
+    console.error('[Portal Sync] Failed to delete child:', error.message);
+  }
+};
+
 // GET: List pending approval requests from parent portal
 app.get('/api/admin/pending-approvals', async (req, res) => {
     try {
@@ -788,6 +835,22 @@ app.post('/api/admin/approve-request', async (req, res) => {
             return;
         }
 
+        const parsedPayload = (rawPayload) => {
+          if (!rawPayload) {
+            return {};
+          }
+
+          if (typeof rawPayload === 'string') {
+            try {
+              return JSON.parse(rawPayload);
+            } catch {
+              return {};
+            }
+          }
+
+          return rawPayload;
+        };
+
         let mainDbChildId = null;
 
         if (action === 'approve') {
@@ -800,7 +863,7 @@ app.post('/api/admin/approve-request', async (req, res) => {
                 );
 
                 if (existing.length === 0) {
-                    const payload = request.payload;
+                    const payload = parsedPayload(request.payload);
                     await query(
                         `INSERT INTO Parent_Beneficiary 
                          (P_No_O_No, Parent_Name, Rank_Rate, Unit, Admin_Authority, Service_Status, Parent_CNIC)
@@ -816,8 +879,8 @@ app.post('/api/admin/approve-request', async (req, res) => {
                         ]
                     );
                 }
-            } else if (request.request_typeA === 'child_addition') {
-                const payload = request.payload;
+                    } else if (request.request_type === 'child_addition') {
+                      const payload = parsedPayload(request.payload);
                 const result = await query(
                     `INSERT INTO Dependent_Children 
                      (P_No_O_No, Child_Name, Age, CNIC_BForm_No, Disease_Disability, 
@@ -834,6 +897,10 @@ app.post('/api/admin/approve-request', async (req, res) => {
                     ]
                 );
                 mainDbChildId = result.insertId;
+                const insertedChild = await getChildRecord(mainDbChildId);
+                if (insertedChild) {
+                  await syncChildToPortal(insertedChild);
+                }
             }
         }
 

@@ -207,6 +207,10 @@ class DatabaseService {
     };
   }
 
+  async refreshFromServer(): Promise<void> {
+    await this.hydrateFromServer();
+  }
+
   private notify(): void {
     this.listeners.forEach(listener => listener());
   }

@@ -486,8 +486,16 @@ export function ParentDetail({ pNo, onNavigate, onBack }: ParentDetailProps) {
 
       <Dialog open={!!previewDoc} onOpenChange={(open) => { if (!open) setPreviewDoc(null); }}>
         <DialogContent className="max-w-5xl p-4">
+<<<<<<< HEAD
           <DialogHeader>
             <DialogTitle>{previewDoc?.name || 'Document Preview'}</DialogTitle>
+=======
+          <DialogHeader className="flex flex-row items-center justify-between gap-3">
+            <DialogTitle className="truncate">{previewDoc?.name || 'Document Preview'}</DialogTitle>
+            <Button type="button" variant="outline" size="sm" onClick={() => setPreviewDoc(null)}>
+              Close
+            </Button>
+>>>>>>> upstream/master
           </DialogHeader>
           <div className="w-full rounded-md border bg-slate-50 p-2">
             {previewDoc && (
