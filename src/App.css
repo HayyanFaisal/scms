@@ -1,0 +1,193 @@
+/* Special Children Management System - Custom Styles */
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #dce9fb;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #1676d7 0%, #0a4f9a 100%);
+  border-radius: 999px;
+  border: 2px solid #dce9fb;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #2192ff 0%, #0b5cb3 100%);
+}
+
+/* Dark mode scrollbar */
+.dark ::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #3b82f6 0%, #1e40af 100%);
+  border-color: #1e293b;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #60a5fa 0%, #1e3a8a 100%);
+}
+
+/* Table improvements */
+.table-container {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Card hover effects */
+.card-hover {
+  transition: all 0.24s ease;
+}
+
+.card-hover:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 16px 30px -18px rgba(6, 46, 99, 0.45), 0 10px 16px -16px rgba(6, 46, 99, 0.4);
+}
+
+/* Form focus states */
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: #1887f0;
+  box-shadow: 0 0 0 3px rgba(24, 135, 240, 0.16);
+}
+
+table tbody tr {
+  transition: background-color 180ms ease, transform 180ms ease;
+}
+
+table tbody tr:hover {
+  background: rgba(26, 117, 214, 0.06);
+}
+
+.dark table tbody tr:hover {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+/* Badge styles for status */
+.badge-serving {
+  @apply bg-green-100 text-green-800 border-green-200;
+}
+
+.badge-retired {
+  @apply bg-blue-100 text-blue-800 border-blue-200;
+}
+
+.badge-expired {
+  @apply bg-gray-100 text-gray-800 border-gray-200;
+}
+
+/* Category badges */
+.category-a {
+  @apply bg-red-100 text-red-800 border-red-200;
+}
+
+.category-b {
+  @apply bg-amber-100 text-amber-800 border-amber-200;
+}
+
+.category-c {
+  @apply bg-green-100 text-green-800 border-green-200;
+}
+
+/* Animation for notifications */
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.notification-slide-in {
+  animation: slideIn 0.3s ease-out;
+}
+
+/* Print styles for reports */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  
+  .print-only {
+    display: block !important;
+  }
+  
+  body {
+    background: white;
+  }
+  
+  .sidebar,
+  header {
+    display: none;
+  }
+  
+  main {
+    margin-left: 0 !important;
+  }
+}
+
+/* Responsive improvements */
+@media (max-width: 640px) {
+  .responsive-table {
+    font-size: 0.875rem;
+  }
+  
+  .responsive-table th,
+  .responsive-table td {
+    padding: 0.5rem;
+  }
+}
+
+/* Loading state */
+.loading-shimmer {
+  background: linear-gradient(
+    90deg,
+    #f1f5f9 25%,
+    #e2e8f0 50%,
+    #f1f5f9 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Data density for ERP-like feel */
+.data-dense {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.data-dense th,
+.data-dense td {
+  padding: 0.5rem 0.75rem;
+}
+
+/* Monospace for numbers */
+.font-mono-numbers {
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
