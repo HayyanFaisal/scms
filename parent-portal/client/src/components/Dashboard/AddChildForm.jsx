@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import './Dashboard.css'
+import { useTheme } from '../../context/ThemeContext'
 
 const DOCUMENT_TYPES = [
     { key: 'assessment_performa', label: 'Assessment Performa', desc: 'Disability evaluation category A/B/C by Specialist Doctor' },
@@ -12,6 +12,7 @@ const DOCUMENT_TYPES = [
 
 const AddChildForm = () => {
     const { token, user } = useAuth()
+    const { darkMode } = useTheme()
     const navigate = useNavigate()
     
     const [step, setStep] = useState(1)
@@ -147,77 +148,96 @@ const AddChildForm = () => {
     // Step 1: Child Data
     if (step === 1) {
         return (
-            <div className="page">
-                <h1>Add Child <span className="step-badge">Step 1 of 2</span></h1>
+            <div className="space-y-8">
+                <div>
+                    <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
+                        Add Child <span className="ml-3 px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-sm font-semibold rounded-full">Step 1 of 2</span>
+                    </h1>
+                    <p className="text-gray-600 dark:text-gray-400">Enter your child's basic information</p>
+                </div>
                 
-                <form onSubmit={handleStep1Submit} className="form-card">
-                    <div className="form-group">
-                        <label>Child Name *</label>
-                        <input
-                            type="text"
-                            value={formData.childName}
-                            onChange={e => setFormData({...formData, childName: e.target.value})}
-                            className={errors.childName ? 'error' : ''}
-                        />
-                        {errors.childName && <span className="error-text">{errors.childName}</span>}
-                    </div>
-
-                    <div className="form-row">
-                        <div className="form-group">
-                            <label>Age</label>
-                            <input
-                                type="number"
-                                step="0.1"
-                                value={formData.age}
-                                onChange={e => setFormData({...formData, age: e.target.value})}
-                            />
-                        </div>
-                        <div className="form-group">
-                            <label>CNIC / B-Form No *</label>
+                <form onSubmit={handleStep1Submit} className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8 max-w-2xl">
+                    <div className="space-y-6">
+                        <div className="space-y-2">
+                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">Child Name *</label>
                             <input
                                 type="text"
-                                value={formData.cnicBformNo}
-                                onChange={e => setFormData({...formData, cnicBformNo: e.target.value})}
-                                className={errors.cnicBformNo ? 'error' : ''}
+                                value={formData.childName}
+                                onChange={e => setFormData({...formData, childName: e.target.value})}
+                                className={`w-full px-4 py-2 border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                                    errors.childName ? 'border-red-300 dark:border-red-600' : 'border-gray-300 dark:border-gray-600'
+                                }`}
                             />
-                            {errors.cnicBformNo && <span className="error-text">{errors.cnicBformNo}</span>}
+                            {errors.childName && <span className="text-red-600 dark:text-red-400 text-sm">{errors.childName}</span>}
                         </div>
-                    </div>
 
-                    <div className="form-group">
-                        <label>Disability Category</label>
-                        <select
-                            value={formData.disabilityCategory}
-                            onChange={e => setFormData({...formData, disabilityCategory: e.target.value})}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-2">
+                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">Age</label>
+                                <input
+                                    type="number"
+                                    step="0.1"
+                                    value={formData.age}
+                                    onChange={e => setFormData({...formData, age: e.target.value})}
+                                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">CNIC / B-Form No *</label>
+                                <input
+                                    type="text"
+                                    value={formData.cnicBformNo}
+                                    onChange={e => setFormData({...formData, cnicBformNo: e.target.value})}
+                                    className={`w-full px-4 py-2 border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                                        errors.cnicBformNo ? 'border-red-300 dark:border-red-600' : 'border-gray-300 dark:border-gray-600'
+                                    }`}
+                                />
+                                {errors.cnicBformNo && <span className="text-red-600 dark:text-red-400 text-sm">{errors.cnicBformNo}</span>}
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">Disability Category</label>
+                            <select
+                                value={formData.disabilityCategory}
+                                onChange={e => setFormData({...formData, disabilityCategory: e.target.value})}
+                                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            >
+                                <option value="">Select Category</option>
+                                <option value="A">A (Severe)</option>
+                                <option value="B">B (Moderate)</option>
+                                <option value="C">C (Mild)</option>
+                            </select>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">Disease / Disability</label>
+                            <textarea
+                                value={formData.diseaseDisability}
+                                onChange={e => setFormData({...formData, diseaseDisability: e.target.value})}
+                                rows={3}
+                                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-vertical"
+                            />
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">School</label>
+                            <input
+                                type="text"
+                                value={formData.school}
+                                onChange={e => setFormData({...formData, school: e.target.value})}
+                                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            />
+                        </div>
+
+                        <button 
+                            type="submit" 
+                            className="w-full px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed" 
+                            disabled={loading}
                         >
-                            <option value="">Select Category</option>
-                            <option value="A">A (Severe)</option>
-                            <option value="B">B (Moderate)</option>
-                            <option value="C">C (Mild)</option>
-                        </select>
+                            {loading ? 'Checking...' : 'Next: Upload Documents →'}
+                        </button>
                     </div>
-
-                    <div className="form-group">
-                        <label>Disease / Disability</label>
-                        <textarea
-                            value={formData.diseaseDisability}
-                            onChange={e => setFormData({...formData, diseaseDisability: e.target.value})}
-                            rows={3}
-                        />
-                    </div>
-
-                    <div className="form-group">
-                        <label>School</label>
-                        <input
-                            type="text"
-                            value={formData.school}
-                            onChange={e => setFormData({...formData, school: e.target.value})}
-                        />
-                    </div>
-
-                    <button type="submit" className="btn-primary" disabled={loading}>
-                        {loading ? 'Checking...' : 'Next: Upload Documents →'}
-                    </button>
                 </form>
             </div>
         )
@@ -225,59 +245,85 @@ const AddChildForm = () => {
 
     // Step 2: Document Upload
     return (
-        <div className="page">
-            <h1>Upload Documents <span className="step-badge">Step 2 of 2</span></h1>
-            <p className="subtitle">Child: {formData.childName} | B-Form/CNIC: {formData.cnicBformNo}</p>
+        <div className="space-y-8">
+            <div>
+                <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
+                    Upload Documents <span className="ml-3 px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-sm font-semibold rounded-full">Step 2 of 2</span>
+                </h1>
+                <p className="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 p-4 rounded-lg border-l-4 border-blue-600">
+                    Child: {formData.childName} | B-Form/CNIC: {formData.cnicBformNo}
+                </p>
+            </div>
 
-            <div className="documents-grid">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {DOCUMENT_TYPES.map(doc => (
-                    <div key={doc.key} className={`doc-card ${documents[doc.key] ? 'uploaded' : ''}`}>
-                        <h4>{doc.label}</h4>
-                        <p className="doc-desc">{doc.desc}</p>
+                    <div key={doc.key} className={`bg-white dark:bg-gray-800 rounded-xl shadow-sm border-2 p-6 transition-colors ${
+                        documents[doc.key] 
+                            ? 'border-green-300 dark:border-green-600 bg-green-50 dark:bg-green-900/10' 
+                            : 'border-gray-200 dark:border-gray-700'
+                    }`}>
+                        <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">{doc.label}</h4>
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{doc.desc}</p>
                         
                         {documents[doc.key] ? (
-                            <div className="doc-preview">
-                                <img 
-                                    src={documents[doc.key].preview} 
-                                    alt={doc.label}
-                                    onClick={() => window.open(documents[doc.key].preview, '_blank')}
-                                />
-                                <span className="doc-filename">{documents[doc.key].fileName}</span>
+                            <div className="space-y-4">
+                                <div className="relative group">
+                                    <img 
+                                        src={documents[doc.key].preview} 
+                                        alt={doc.label}
+                                        onClick={() => window.open(documents[doc.key].preview, '_blank')}
+                                        className="w-full h-48 object-cover rounded-lg cursor-pointer transition-transform group-hover:scale-105"
+                                    />
+                                </div>
+                                <p className="text-sm text-gray-600 dark:text-gray-400 break-all">{documents[doc.key].fileName}</p>
                                 <button 
-                                    className="btn-change"
+                                    className="w-full px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
                                     onClick={() => setDocuments(prev => {
                                         const next = { ...prev }; delete next[doc.key]; return next;
                                     })}
                                 >
-                                    Change
+                                    Change Document
                                 </button>
                             </div>
                         ) : (
-                            <label className="upload-area">
+                            <label className="block cursor-pointer">
                                 <input
                                     type="file"
                                     accept="image/*,.pdf"
                                     onChange={e => handleFileUpload(doc.key, e.target.files[0])}
                                     hidden
                                 />
-                                {uploading[doc.key] ? (
-                                    <span>Uploading...</span>
-                                ) : (
-                                    <>
-                                        <span className="upload-icon">📎</span>
-                                        <span>Click to upload</span>
-                                        <small>Max 5MB • JPG, PNG, PDF</small>
-                                    </>
-                                )}
+                                <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-8 text-center hover:border-blue-500 dark:hover:border-blue-400 transition-colors bg-gray-50 dark:bg-gray-700">
+                                    {uploading[doc.key] ? (
+                                        <div className="space-y-2">
+                                            <div className="w-8 h-8 border-4 border-gray-200 border-t-blue-600 rounded-full animate-spin mx-auto"></div>
+                                            <span className="text-gray-600 dark:text-gray-400">Uploading...</span>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-2">
+                                            <span className="text-4xl">📎</span>
+                                            <span className="text-gray-600 dark:text-gray-400 font-medium">Click to upload</span>
+                                            <p className="text-xs text-gray-500 dark:text-gray-500">Max 5MB • JPG, PNG, PDF</p>
+                                        </div>
+                                    )}
+                                </div>
                             </label>
                         )}
                     </div>
                 ))}
             </div>
 
-            <div className="form-actions">
-                <button className="btn-secondary" onClick={() => setStep(1)}>← Back</button>
-                <button className="btn-primary" onClick={handleFinish}>
+            <div className="flex justify-between gap-4 pt-6 border-t border-gray-200 dark:border-gray-700">
+                <button 
+                    className="px-6 py-3 bg-gray-600 hover:bg-gray-700 text-white font-medium rounded-lg transition-colors" 
+                    onClick={() => setStep(1)}
+                >
+                    ← Back
+                </button>
+                <button 
+                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+                    onClick={handleFinish}
+                >
                     Submit for Approval
                 </button>
             </div>

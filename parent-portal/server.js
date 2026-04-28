@@ -39,12 +39,12 @@ const authLimiter = rateLimit({
     skipSuccessfulRequests: true
 });
 
-// Database pool
+// Database connection (using main database)
 const pool = mysql.createPool({
-    host: process.env.PORTAL_DB_HOST || '127.0.0.1',
-    user: process.env.PORTAL_DB_USER || 'root',
-    password: process.env.PORTAL_DB_PASSWORD || '',
-    database: process.env.PORTAL_DB_NAME || 'scms_portal',
+    host: process.env.PORTAL_DB_HOST,
+    user: process.env.PORTAL_DB_USER,
+    password: process.env.PORTAL_DB_PASSWORD,
+    database: process.env.PORTAL_DB_NAME,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
@@ -93,50 +93,28 @@ const upload = multer({
     }
 });
 
-// Verify database connection and create tables
+// Verify database connection and check main database tables
 pool.getConnection()
     .then(async conn => {
-        console.log('✅ Connected to portal database:', process.env.PORTAL_DB_NAME);
+        console.log('✅ Connected to main database:', process.env.PORTAL_DB_NAME);
         
-        // Create Child_Documents table if it doesn't exist
-        await conn.query(`
-            CREATE TABLE IF NOT EXISTS Child_Documents (
-                document_id INT AUTO_INCREMENT PRIMARY KEY,
-                child_id INT NOT NULL,
-                document_type ENUM('assessment_performa', 'application_form', 'disability_certificate', 'identity_proof') NOT NULL,
-                file_path VARCHAR(500) NOT NULL,
-                original_name VARCHAR(255) NOT NULL,
-                file_size INT NOT NULL,
-                uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE KEY unique_child_document (child_id, document_type),
-                INDEX idx_child_documents_child (child_id),
-                CONSTRAINT fk_child_documents_child
-                    FOREIGN KEY (child_id)
-                    REFERENCES Portal_Children(child_id)
-                    ON DELETE CASCADE
-            )
-        `);
-        console.log('✅ Child_Documents table verified/created');
+        // Check if main database tables exist
+        const [tables] = await conn.query('SHOW TABLES');
+        const tableNames = tables.map(row => Object.values(row)[0]);
         
-        // Create Banking_Details table if it doesn't exist
-        await conn.query(`
-            CREATE TABLE IF NOT EXISTS Banking_Details (
-                Account_ID INT AUTO_INCREMENT PRIMARY KEY,
-                P_No_O_No VARCHAR(50) NOT NULL,
-                Bank_Name VARCHAR(255) NOT NULL,
-                Account_Title VARCHAR(255) NOT NULL,
-                Account_Number VARCHAR(100) NOT NULL,
-                Branch_Code VARCHAR(50),
-                Branch_Address TEXT,
-                IBAN VARCHAR(100),
-                Routing_Number VARCHAR(50),
-                Created_At TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                Updated_At TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                UNIQUE KEY unique_parent_banking (P_No_O_No),
-                INDEX idx_banking_parent (P_No_O_No)
-            )
-        `);
-        console.log('✅ Banking_Details table verified/created');
+        console.log('📋 Available tables:', tableNames);
+        
+        // Check for required tables
+        const requiredTables = ['parent_beneficiary', 'banking_details', 'dependent_children'];
+        const missingTables = requiredTables.filter(table => !tableNames.includes(table));
+        
+        if (missingTables.length > 0) {
+            console.error('❌ Missing required tables:', missingTables);
+            console.error('Please ensure the main database has been properly initialized with the main system.');
+            process.exit(1);
+        }
+        
+        console.log('✅ All required tables found in main database');
         
         conn.release();
     })
@@ -161,10 +139,10 @@ const authenticateToken = (req, res, next) => {
 
 const requireApproved = async (req, res, next) => {
     const [users] = await pool.execute(
-        'SELECT status FROM Portal_Users WHERE user_id = ?',
-        [req.user.userId]
+        'SELECT Status FROM parent_beneficiary WHERE P_No_O_No = ?',
+        [req.user.pNoONo]
     );
-    if (users[0]?.status !== 'approved') {
+    if (users[0]?.Status !== 'approved') {
         return res.status(403).json({ error: 'Account pending approval' });
     }
     next();
@@ -181,40 +159,55 @@ const generateDefaultPassword = (pNoONo) => `password@${pNoONo}`;
 app.post('/api/auth/signup', authLimiter, async (req, res) => {
     const { email, password, parentName, pNoONo, rankRate, unit, contactNo, cnic, serviceStatus } = req.body;
     
+    // Ensure all optional fields have default values
+    const safeRankRate = rankRate || null;
+    const safeUnit = unit || null;
+    const safeContactNo = contactNo || null;
+    const safeServiceStatus = serviceStatus || 'Serving';
+    
     try {
         if (!email || !password || !parentName || !pNoONo || !cnic) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
 
         const [existing] = await pool.execute(
-            'SELECT user_id, status, origin FROM Portal_Users WHERE p_no_o_no = ?',
-            [pNoONo]
+            'SELECT P_No_O_No, Email FROM parent_beneficiary WHERE P_No_O_No = ? OR Email = ?',
+            [pNoONo, email]
         );
         
         if (existing.length > 0) {
-            return res.status(409).json({ 
-                error: 'This P.No/O.No is already registered. Please login instead.' 
-            });
+            const existingUser = existing[0];
+            if (existingUser.P_No_O_No === pNoONo) {
+                return res.status(409).json({ 
+                    error: 'This P.No/O.No is already registered. Please login instead.' 
+                });
+            }
+            if (existingUser.Email === email) {
+                return res.status(409).json({ 
+                    error: 'This email is already registered. Please use a different email.' 
+                });
+            }
         }
 
         const hashedPassword = await hashPassword(password);
         const verificationToken = crypto.randomBytes(32).toString('hex');
 
+        // Insert new user into parent_beneficiary
         const [result] = await pool.execute(
-            `INSERT INTO Portal_Users 
-             (email, password_hash, parent_name, p_no_o_no, rank_rate, unit, 
-              contact_no, cnic, service_status, verification_token, status, origin)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'self_registered')`,
-            [email, hashedPassword, parentName, pNoONo, rankRate, unit, 
-             contactNo, cnic, serviceStatus, verificationToken]
+            `INSERT INTO parent_beneficiary 
+             (P_No_O_No, Parent_Name, Parent_CNIC, Email, Password_Hash, Status, Origin, Created_At)
+             VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+            [pNoONo, parentName, cnic, email, hashedPassword, 'pending', 'self_registered']
         );
 
+        // Create approval request
         await pool.execute(
-            `INSERT INTO Approval_Requests (user_id, request_type, payload) 
-             VALUES (?, 'parent_registration', ?)`,
-            [result.insertId, JSON.stringify({
-                email, parentName, pNoONo, rankRate, unit, adminAuthority, contactNo, cnic, serviceStatus,
-                origin: 'self_registered'
+            `INSERT INTO Approval_Requests (user_id, request_type, payload, status, created_at) 
+             VALUES (?, 'parent_registration', ?, 'pending', NOW())`,
+            [pNoONo, JSON.stringify({
+                email, parentName, pNoONo, rankRate: safeRankRate, unit: safeUnit, contactNo: safeContactNo, cnic, serviceStatus: safeServiceStatus,
+                origin: 'self_registered',
+                adminAuthority: 'HQ COMNOR'
             })]
         );
 
@@ -226,7 +219,7 @@ app.post('/api/auth/signup', authLimiter, async (req, res) => {
 
     } catch (error) {
         if (error.code === 'ER_DUP_ENTRY') {
-            return res.status(409).json({ error: 'Email or CNIC already registered' });
+            return res.status(409).json({ error: 'Email or P.No/O.No already registered' });
         }
         console.error('Signup error:', error);
         res.status(500).json({ error: 'Registration failed' });
@@ -243,71 +236,74 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 
     try {
         const [users] = await pool.execute(
-            `SELECT user_id, email, password_hash, status, parent_name, p_no_o_no,
-                    origin, default_password_changed
-             FROM Portal_Users WHERE p_no_o_no = ?`,
+            'SELECT P_No_O_No, Parent_Name, Email, Rank_Rate, Unit, Contact_No, Parent_CNIC, Service_Status, Status, Origin, Password_Hash, Default_Password_Changed FROM parent_beneficiary WHERE P_No_O_No = ?',
             [pNoONo]
         );
 
-        if (users.length === 0) {
-            return res.status(401).json({ error: 'Invalid P.No/O.No or password' });
-        }
-
         const user = users[0];
-        const validPassword = await verifyPassword(password, user.password_hash);
-
-        if (!validPassword) {
-            await pool.execute(
-                `INSERT INTO Portal_Audit_Log (user_id, action, ip_address, details) 
-                 VALUES (?, ?, ?, ?)`,
-                [user.user_id, 'LOGIN_FAILED', req.ip, JSON.stringify({ reason: 'invalid_password' })]
-            );
-            return res.status(401).json({ error: 'Invalid P.No/O.No or password' });
+        if (!user) {
+            return res.status(401).json({ error: 'Invalid credentials' });
         }
 
-        if (user.status === 'pending') {
+        // Check if user has password set
+        if (!user.Password_Hash) {
+            return res.status(401).json({ error: 'Account not set up for login. Please contact admin.' });
+        }
+
+        const isPasswordValid = await bcrypt.compare(password, user.Password_Hash);
+        if (!isPasswordValid) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
+
+        if (user.Status === 'pending') {
             return res.status(403).json({ error: 'Account pending admin approval', status: 'pending' });
         }
 
-        if (user.status === 'rejected') {
+        if (user.Status === 'rejected') {
             return res.status(403).json({ error: 'Account was rejected. Contact admin.', status: 'rejected' });
         }
 
-        await pool.execute(
-            `INSERT INTO Portal_Audit_Log (user_id, action, ip_address, details) 
-             VALUES (?, ?, ?, ?)`,
-            [user.user_id, 'LOGIN_SUCCESS', req.ip, JSON.stringify({ origin: user.origin })]
-        );
+        // Log login attempt (you may need to create this table if it doesn't exist)
+        try {
+            await pool.execute(
+                'INSERT INTO Portal_Login_History (user_id, login_status, ip_address, details) VALUES (?, ?, ?, ?)',
+                [user.P_No_O_No, 'LOGIN_SUCCESS', req.ip, JSON.stringify({ origin: user.Origin, email: user.Email })]
+            );
+        } catch (logError) {
+            console.warn('Login history logging failed (table may not exist):', logError.message);
+        }
 
         const token = jwt.sign(
             { 
-                userId: user.user_id, 
-                pNoONo: user.p_no_o_no,
-                email: user.email,
-                status: user.status,
-                origin: user.origin
+                userId: user.P_No_O_No, 
+                pNoONo: user.P_No_O_No,
+                email: user.Email,
+                parentName: user.Parent_Name
             },
             process.env.PORTAL_JWT_SECRET,
-            { expiresIn: '8h' }
+            { expiresIn: '24h' }
         );
 
         res.json({
             token,
             user: {
-                id: user.user_id,
-                pNoONo: user.p_no_o_no,
-                email: user.email,
-                name: user.parent_name,
-                status: user.status,
-                origin: user.origin,
-                defaultPasswordChanged: user.default_password_changed,
-                isFirstLogin: user.origin === 'admin_created' && !user.default_password_changed
+                id: user.P_No_O_No,
+                name: user.Parent_Name,
+                email: user.Email,
+                pNoONo: user.P_No_O_No,
+                rankRate: user.Rank_Rate,
+                unit: user.Unit,
+                contactNo: user.Contact_No,
+                cnic: user.Parent_CNIC,
+                serviceStatus: user.Service_Status,
+                status: user.Status,
+                origin: user.Origin
             }
         });
 
     } catch (error) {
         console.error('Login error:', error);
-        res.status(500).json({ error: 'Login failed' });
+        res.status(500).json({ error: 'Server error' });
     }
 });
 
@@ -321,8 +317,8 @@ app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
 
     try {
         const [users] = await pool.execute(
-            'SELECT password_hash FROM Portal_Users WHERE user_id = ?',
-            [req.user.userId]
+            'SELECT Password_Hash FROM parent_beneficiary WHERE P_No_O_No = ?',
+            [req.user.pNoONo]
         );
 
         const validCurrent = await verifyPassword(currentPassword, users[0].password_hash);
@@ -356,22 +352,17 @@ app.post('/api/children', authenticateToken, requireApproved, async (req, res) =
 
     try {
         const [result] = await pool.execute(
-            `INSERT INTO Portal_Children 
-             (user_id, child_name, age, cnic_bform_no, disease_disability, disability_category, school)
+            `INSERT INTO dependent_children (P_No_O_No, Child_Name, Age, CNIC_B_Form_No, Disease_Disability, Disability_Category, School)
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [req.user.userId, childName, age, cnicBformNo, diseaseDisability, disabilityCategory, school]
+            [req.user.pNoONo, childName, age, cnicBformNo, diseaseDisability, disabilityCategory, school]
         );
 
-        await pool.execute(
-            `INSERT INTO Approval_Requests (user_id, request_type, payload) VALUES (?, 'child_addition', ?)`,
-            [req.user.userId, JSON.stringify({
-                childId: result.insertId, childName, age, cnicBformNo, diseaseDisability, disabilityCategory, school
-            })]
-        );
-
-        res.status(201).json({ message: 'Child added, pending admin approval', childId: result.insertId });
-
+        res.status(201).json({ 
+            message: 'Child added successfully',
+            child_id: result.insertId 
+        });
     } catch (error) {
+        console.error('Failed to add child:', error);
         res.status(500).json({ error: 'Failed to add child' });
     }
 });
@@ -379,13 +370,32 @@ app.post('/api/children', authenticateToken, requireApproved, async (req, res) =
 app.get('/api/children', authenticateToken, requireApproved, async (req, res) => {
     try {
         const [children] = await pool.execute(
-            `SELECT child_id, child_name, age, cnic_bform_no, disease_disability, 
-                    disability_category, school, sync_status, main_db_child_id
-             FROM Portal_Children WHERE user_id = ?`,
-            [req.user.userId]
+            `SELECT Child_ID, Child_Name, Age, CNIC_B_Form_No, Disease_Disability, 
+                    Disability_Category, School, Disability_Certificate_No, Authority
+             FROM dependent_children 
+             WHERE P_No_O_No = ? 
+             ORDER BY Child_ID DESC`,
+            [req.user.pNoONo]
         );
-        res.json(children);
+        
+        // Transform the data to match the frontend expectations
+        const transformedChildren = children.map(child => ({
+            child_id: child.Child_ID,
+            child_name: child.Child_Name,
+            age: child.Age,
+            cnic_bform_no: child.CNIC_B_Form_No,
+            disease_disability: child.Disease_Disability,
+            disability_category: child.Disability_Category,
+            school: child.School,
+            assessment_performa: null, // These would be stored in separate tables
+            application_form: null,
+            disability_certificate: child.Disability_Certificate_No,
+            identity_proof: null
+        }));
+        
+        res.json(transformedChildren);
     } catch (error) {
+        console.error('Failed to fetch children:', error);
         res.status(500).json({ error: 'Failed to fetch children' });
     }
 });
@@ -577,18 +587,31 @@ app.get('/api/documents/view', async (req, res) => {
 app.get('/api/profile', authenticateToken, requireApproved, async (req, res) => {
     try {
         const [users] = await pool.execute(
-            `SELECT user_id, email, parent_name, p_no_o_no, rank_rate, unit,
-                    contact_no, cnic, service_status, status, origin,
-                    default_password_changed, created_at, approved_at
-             FROM Portal_Users WHERE user_id = ?`,
-            [req.user.userId]
+            `SELECT P_No_O_No, Parent_Name, Email, Rank_Rate, Unit,
+                    Contact_No, CNIC, Service_Status, Status, Origin,
+                    Default_Password_Changed, Created_At
+             FROM parent_beneficiary WHERE P_No_O_No = ?`,
+            [req.user.pNoONo]
         );
 
         const user = users[0];
         res.json({
-            ...user,
-            tag: user.origin === 'admin_created' ? 'Admin Created' : 'New User',
-            tagColor: user.origin === 'admin_created' ? '#1976d2' : '#ed6c02'
+            user_id: user.P_No_O_No,
+            email: user.Email,
+            parent_name: user.Parent_Name,
+            p_no_o_no: user.P_No_O_No,
+            rank_rate: user.Rank_Rate,
+            unit: user.Unit,
+            contact_no: user.Contact_No,
+            cnic: user.CNIC,
+            service_status: user.Service_Status,
+            status: user.Status,
+            origin: user.Origin,
+            default_password_changed: user.Default_Password_Changed,
+            created_at: user.Created_At,
+            approved_at: user.Created_At, // Using Created_At as approved_at for now
+            tag: user.Origin === 'admin_created' ? 'Admin Created' : 'New User',
+            tagColor: user.Origin === 'admin_created' ? '#1976d2' : '#ed6c02'
         });
 
     } catch (error) {
@@ -599,17 +622,19 @@ app.get('/api/profile', authenticateToken, requireApproved, async (req, res) => 
 app.get('/api/status', authenticateToken, async (req, res) => {
     try {
         const [user] = await pool.execute(
-            'SELECT status, admin_notes, approved_at FROM Portal_Users WHERE user_id = ?',
-            [req.user.userId]
+            'SELECT Status FROM parent_beneficiary WHERE P_No_O_No = ?',
+            [req.user.pNoONo]
         );
 
-        const [requests] = await pool.execute(
-            `SELECT request_id, request_type, status, admin_response, requested_at, responded_at
-             FROM Approval_Requests WHERE user_id = ? ORDER BY requested_at DESC`,
-            [req.user.userId]
-        );
-
-        res.json({ accountStatus: user[0], requests });
+        // For now, return empty requests since Approval_Requests table may not exist in main DB
+        res.json({ 
+            accountStatus: { 
+                status: user[0]?.Status || 'unknown', 
+                admin_notes: '', 
+                approved_at: null 
+            }, 
+            requests: [] 
+        });
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch status' });
     }
@@ -620,7 +645,7 @@ app.get('/api/status', authenticateToken, async (req, res) => {
 app.get('/api/parent/banking', authenticateToken, async (req, res) => {
     try {
         const [banking] = await pool.execute(
-            'SELECT * FROM Banking_Details WHERE P_No_O_No = ?',
+            'SELECT * FROM banking_details WHERE P_No_O_No = ?',
             [req.user.pNoONo]
         );
         res.json(banking);
@@ -636,7 +661,7 @@ app.post('/api/parent/banking/add', authenticateToken, async (req, res) => {
         
         // Check if banking details already exist for this parent
         const [existing] = await pool.execute(
-            'SELECT COUNT(*) as count FROM Banking_Details WHERE P_No_O_No = ?',
+            'SELECT COUNT(*) as count FROM banking_details WHERE P_No_O_No = ?',
             [req.user.pNoONo]
         );
         
@@ -645,14 +670,14 @@ app.post('/api/parent/banking/add', authenticateToken, async (req, res) => {
         }
         
         const [result] = await pool.execute(
-            `INSERT INTO Banking_Details (P_No_O_No, Bank_Name, Account_Title, Account_Number, Branch_Code, Branch_Address, IBAN, Routing_Number)
+            `INSERT INTO banking_details (P_No_O_No, Bank_Name, Account_Title, Account_Number, Branch_Code, Branch_Address, IBAN, Routing_Number)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             [req.user.pNoONo, bank_name, account_title, account_number, branch_code, branch_address, iban, routing_number]
         );
         
         // Fetch the newly created banking details to return to frontend
         const [newBankingDetails] = await pool.execute(
-            'SELECT * FROM Banking_Details WHERE Account_ID = ?',
+            'SELECT * FROM banking_details WHERE Account_ID = ?',
             [result.insertId]
         );
         
@@ -672,7 +697,7 @@ app.put('/api/parent/banking/update', authenticateToken, async (req, res) => {
         
         // First check if banking details exist for this user
         const [existing] = await pool.execute(
-            'SELECT COUNT(*) as count FROM Banking_Details WHERE P_No_O_No = ?',
+            'SELECT COUNT(*) as count FROM banking_details WHERE P_No_O_No = ?',
             [req.user.pNoONo]
         );
         
@@ -683,7 +708,7 @@ app.put('/api/parent/banking/update', authenticateToken, async (req, res) => {
         }
         
         const [result] = await pool.execute(
-            `UPDATE Banking_Details 
+            `UPDATE banking_details 
              SET Bank_Name = ?, Account_Title = ?, Account_Number = ?, Branch_Code = ?, Branch_Address = ?, IBAN = ?, Routing_Number = ?
              WHERE P_No_O_No = ?`,
             [bank_name, account_title, account_number, branch_code, branch_address, iban, routing_number, req.user.pNoONo]
@@ -697,7 +722,7 @@ app.put('/api/parent/banking/update', authenticateToken, async (req, res) => {
         
         // Fetch the updated banking details to return to frontend
         const [updatedBankingDetails] = await pool.execute(
-            'SELECT * FROM Banking_Details WHERE P_No_O_No = ?',
+            'SELECT * FROM banking_details WHERE P_No_O_No = ?',
             [req.user.pNoONo]
         );
         
@@ -714,7 +739,7 @@ app.put('/api/parent/banking/update', authenticateToken, async (req, res) => {
 app.delete('/api/parent/banking/delete', authenticateToken, async (req, res) => {
     try {
         const [result] = await pool.execute(
-            'DELETE FROM Banking_Details WHERE P_No_O_No = ?',
+            'DELETE FROM banking_details WHERE P_No_O_No = ?',
             [req.user.pNoONo]
         );
         
@@ -799,15 +824,17 @@ app.get('/api/sync/pending', async (req, res) => {
 
     try {
         const [requests] = await pool.execute(
-            `SELECT r.*, u.email, u.parent_name, u.p_no_o_no, u.cnic, u.origin
+            `SELECT r.*, p.Email as email, p.Parent_Name as parent_name, p.P_No_O_No as p_no_o_no, 
+                    p.Parent_CNIC as cnic, p.Origin as origin
              FROM Approval_Requests r
-             JOIN Portal_Users u ON r.user_id = u.user_id
+             JOIN parent_beneficiary p ON r.user_id = p.P_No_O_No
              WHERE r.status = 'pending'
-             ORDER BY r.requested_at ASC`
+             ORDER BY r.created_at ASC`
         );
         res.json(requests);
     } catch (error) {
-        res.status(500).json({ error: 'Failed to fetch pending requests' });
+        console.error('Sync pending error:', error);
+        res.status(500).json({ error: 'Failed to fetch pending requests', details: error.message });
     }
 });
 
@@ -820,14 +847,17 @@ app.get('/api/sync/all-requests', async (req, res) => {
 
     try {
         const [requests] = await pool.execute(
-            `SELECT r.*, u.email, u.parent_name, u.p_no_o_no, u.cnic, u.origin, u.rank_rate, u.unit, u.service_status
+            `SELECT r.*, p.Email as email, p.Parent_Name as parent_name, p.P_No_O_No as p_no_o_no, 
+                    p.Parent_CNIC as cnic, p.Origin as origin, p.Rank_Rate as rank_rate, p.Unit as unit, 
+                    p.Service_Status as service_status
              FROM Approval_Requests r
-             JOIN Portal_Users u ON r.user_id = u.user_id
-             ORDER BY r.requested_at DESC`
+             JOIN parent_beneficiary p ON r.user_id = p.P_No_O_No
+             ORDER BY r.created_at DESC`
         );
         res.json(requests);
     } catch (error) {
-        res.status(500).json({ error: 'Failed to fetch requests' });
+        console.error('Sync all-requests error:', error);
+        res.status(500).json({ error: 'Failed to fetch requests', details: error.message });
     }
 });
 

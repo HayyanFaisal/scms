@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext'
-import './Banking.css'
+import { useTheme } from '../../context/ThemeContext'
 
 const Banking = () => {
   const { user, token } = useAuth()
+  const { darkMode } = useTheme()
   const [bankingDetails, setBankingDetails] = useState(null)
   const [isEditing, setIsEditing] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -170,51 +171,74 @@ const Banking = () => {
 
   if (loading) {
     return (
-      <div className="banking-loading">
-        <div className="spinner"></div>
-        <p>Loading banking details...</p>
+      <div className="flex flex-col items-center justify-center min-h-64">
+        <div className="w-10 h-10 border-4 border-gray-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
+        <p className="text-gray-500 dark:text-gray-400">Loading banking details...</p>
       </div>
     )
   }
 
   return (
-    <div className="banking-container">
-      <div className="banking-header">
-        <h1>Banking Details</h1>
-        <p>Manage your banking information for grant payments</p>
+    <div className="space-y-8">
+      <div>
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Banking Details</h1>
+        <p className="text-gray-600 dark:text-gray-400">Manage your banking information for grant payments</p>
       </div>
 
-      {message && <div className="success-message">{message}</div>}
-      {error && <div className="error-message">{error}</div>}
+      {message && (
+        <div className="p-4 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-lg text-green-700 dark:text-green-400 font-medium">
+          {message}
+        </div>
+      )}
+      {error && (
+        <div className="p-4 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400 font-medium">
+          {error}
+        </div>
+      )}
 
       {!bankingDetails && !isEditing && (
-        <div className="no-banking">
-          <div className="no-banking-icon">🏦</div>
-          <h3>No Banking Details</h3>
-          <p>You haven't added your banking details yet. Add them to receive grant payments directly to your bank account.</p>
-          <button onClick={() => setIsEditing(true)} className="btn-primary">
+        <div className="text-center p-12 bg-gray-50 dark:bg-gray-800 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-600">
+          <div className="text-6xl mb-4 opacity-50">🏦</div>
+          <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">No Banking Details</h3>
+          <p className="text-gray-600 dark:text-gray-400 mb-6 max-w-md mx-auto">
+            You haven't added your banking details yet. Add them to receive grant payments directly to your bank account.
+          </p>
+          <button 
+            onClick={() => setIsEditing(true)} 
+            className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+          >
             Add Banking Details
           </button>
         </div>
       )}
 
       {(bankingDetails || isEditing) && (
-        <div className="banking-form-container">
-          <div className="form-header">
-            <h2>{bankingDetails ? 'Banking Information' : 'Add Banking Details'}</h2>
-            {!isEditing && bankingDetails && (
-              <div className="form-actions">
-                <button onClick={handleEdit} className="btn-secondary">Edit</button>
-                <button onClick={handleDelete} className="btn-danger">Delete</button>
-              </div>
-            )}
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <div className="p-6 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                {bankingDetails ? 'Banking Information' : 'Add Banking Details'}
+              </h2>
+              {!isEditing && bankingDetails && (
+                <div className="flex gap-2">
+                  <button onClick={handleEdit} className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white font-medium rounded-lg transition-colors">
+                    Edit
+                  </button>
+                  <button onClick={handleDelete} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors">
+                    Delete
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           {isEditing ? (
-            <form onSubmit={handleSubmit} className="banking-form">
-              <div className="form-grid">
-                <div className="form-group">
-                  <label htmlFor="bank_name">Bank Name *</label>
+            <form onSubmit={handleSubmit} className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label htmlFor="bank_name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Bank Name *
+                  </label>
                   <input
                     type="text"
                     id="bank_name"
@@ -223,11 +247,14 @@ const Banking = () => {
                     onChange={handleInputChange}
                     required
                     placeholder="e.g., Habib Bank Limited"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
 
-                <div className="form-group">
-                  <label htmlFor="account_title">Account Title *</label>
+                <div className="space-y-2">
+                  <label htmlFor="account_title" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Account Title *
+                  </label>
                   <input
                     type="text"
                     id="account_title"
@@ -236,11 +263,14 @@ const Banking = () => {
                     onChange={handleInputChange}
                     required
                     placeholder="Account holder name"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
 
-                <div className="form-group">
-                  <label htmlFor="account_number">Account Number *</label>
+                <div className="space-y-2">
+                  <label htmlFor="account_number" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Account Number *
+                  </label>
                   <input
                     type="text"
                     id="account_number"
@@ -249,11 +279,14 @@ const Banking = () => {
                     onChange={handleInputChange}
                     required
                     placeholder="Your bank account number"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
 
-                <div className="form-group">
-                  <label htmlFor="branch_code">Branch Code</label>
+                <div className="space-y-2">
+                  <label htmlFor="branch_code" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Branch Code
+                  </label>
                   <input
                     type="text"
                     id="branch_code"
@@ -261,11 +294,14 @@ const Banking = () => {
                     value={formData.branch_code}
                     onChange={handleInputChange}
                     placeholder="Bank branch code"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
 
-                <div className="form-group full-width">
-                  <label htmlFor="branch_address">Branch Address</label>
+                <div className="space-y-2 md:col-span-2">
+                  <label htmlFor="branch_address" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Branch Address
+                  </label>
                   <textarea
                     id="branch_address"
                     name="branch_address"
@@ -273,11 +309,14 @@ const Banking = () => {
                     onChange={handleInputChange}
                     placeholder="Complete branch address"
                     rows={3}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-vertical"
                   />
                 </div>
 
-                <div className="form-group">
-                  <label htmlFor="iban">IBAN (Optional)</label>
+                <div className="space-y-2">
+                  <label htmlFor="iban" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    IBAN (Optional)
+                  </label>
                   <input
                     type="text"
                     id="iban"
@@ -285,11 +324,14 @@ const Banking = () => {
                     value={formData.iban}
                     onChange={handleInputChange}
                     placeholder="International Bank Account Number"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
 
-                <div className="form-group">
-                  <label htmlFor="routing_number">Routing Number (Optional)</label>
+                <div className="space-y-2">
+                  <label htmlFor="routing_number" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Routing Number (Optional)
+                  </label>
                   <input
                     type="text"
                     id="routing_number"
@@ -297,49 +339,58 @@ const Banking = () => {
                     value={formData.routing_number}
                     onChange={handleInputChange}
                     placeholder="Bank routing number"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
               </div>
 
-              <div className="form-actions">
-                <button type="button" onClick={handleCancel} className="btn-secondary">
+              <div className="flex justify-between gap-4 mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
+                <button 
+                  type="button" 
+                  onClick={handleCancel} 
+                  className="px-6 py-2 bg-gray-600 hover:bg-gray-700 text-white font-medium rounded-lg transition-colors"
+                >
                   Cancel
                 </button>
-                <button type="submit" disabled={saving} className="btn-primary">
+                <button 
+                  type="submit" 
+                  disabled={saving} 
+                  className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
                   {saving ? 'Saving...' : (bankingDetails ? 'Update' : 'Save')}
                 </button>
               </div>
             </form>
           ) : (
-            <div className="banking-details-view">
-              <div className="details-grid">
-                <div className="detail-item">
-                  <label>Bank Name</label>
-                  <span>{bankingDetails.bank_name}</span>
+            <div className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Bank Name</label>
+                  <p className="text-gray-900 dark:text-gray-100 font-medium">{bankingDetails.bank_name}</p>
                 </div>
-                <div className="detail-item">
-                  <label>Account Title</label>
-                  <span>{bankingDetails.account_title}</span>
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Account Title</label>
+                  <p className="text-gray-900 dark:text-gray-100 font-medium">{bankingDetails.account_title}</p>
                 </div>
-                <div className="detail-item">
-                  <label>Account Number</label>
-                  <span>{bankingDetails.account_number}</span>
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Account Number</label>
+                  <p className="text-gray-900 dark:text-gray-100 font-medium">{bankingDetails.account_number}</p>
                 </div>
-                <div className="detail-item">
-                  <label>Branch Code</label>
-                  <span>{bankingDetails.branch_code || 'N/A'}</span>
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Branch Code</label>
+                  <p className="text-gray-900 dark:text-gray-100 font-medium">{bankingDetails.branch_code || 'N/A'}</p>
                 </div>
-                <div className="detail-item full-width">
-                  <label>Branch Address</label>
-                  <span>{bankingDetails.branch_address || 'N/A'}</span>
+                <div className="space-y-2 md:col-span-2">
+                  <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Branch Address</label>
+                  <p className="text-gray-900 dark:text-gray-100 font-medium">{bankingDetails.branch_address || 'N/A'}</p>
                 </div>
-                <div className="detail-item">
-                  <label>IBAN</label>
-                  <span>{bankingDetails.iban || 'N/A'}</span>
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">IBAN</label>
+                  <p className="text-gray-900 dark:text-gray-100 font-medium">{bankingDetails.iban || 'N/A'}</p>
                 </div>
-                <div className="detail-item">
-                  <label>Routing Number</label>
-                  <span>{bankingDetails.routing_number || 'N/A'}</span>
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Routing Number</label>
+                  <p className="text-gray-900 dark:text-gray-100 font-medium">{bankingDetails.routing_number || 'N/A'}</p>
                 </div>
               </div>
             </div>
