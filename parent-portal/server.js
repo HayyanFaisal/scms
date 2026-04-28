@@ -118,6 +118,26 @@ pool.getConnection()
         `);
         console.log('✅ Child_Documents table verified/created');
         
+        // Create Banking_Details table if it doesn't exist
+        await conn.query(`
+            CREATE TABLE IF NOT EXISTS Banking_Details (
+                Account_ID INT AUTO_INCREMENT PRIMARY KEY,
+                P_No_O_No VARCHAR(50) NOT NULL,
+                Bank_Name VARCHAR(255) NOT NULL,
+                Account_Title VARCHAR(255) NOT NULL,
+                Account_Number VARCHAR(100) NOT NULL,
+                Branch_Code VARCHAR(50),
+                Branch_Address TEXT,
+                IBAN VARCHAR(100),
+                Routing_Number VARCHAR(50),
+                Created_At TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                Updated_At TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY unique_parent_banking (P_No_O_No),
+                INDEX idx_banking_parent (P_No_O_No)
+            )
+        `);
+        console.log('✅ Banking_Details table verified/created');
+        
         conn.release();
     })
     .catch(err => {
@@ -592,6 +612,120 @@ app.get('/api/status', authenticateToken, async (req, res) => {
         res.json({ accountStatus: user[0], requests });
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch status' });
+    }
+});
+
+// ==================== BANKING DETAILS ====================
+
+app.get('/api/parent/banking', authenticateToken, async (req, res) => {
+    try {
+        const [banking] = await pool.execute(
+            'SELECT * FROM Banking_Details WHERE P_No_O_No = ?',
+            [req.user.pNoONo]
+        );
+        res.json(banking);
+    } catch (error) {
+        console.error('Failed to fetch banking details:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+app.post('/api/parent/banking/add', authenticateToken, async (req, res) => {
+    try {
+        const { bank_name, account_title, account_number, branch_code, branch_address, iban, routing_number } = req.body;
+        
+        // Check if banking details already exist for this parent
+        const [existing] = await pool.execute(
+            'SELECT COUNT(*) as count FROM Banking_Details WHERE P_No_O_No = ?',
+            [req.user.pNoONo]
+        );
+        
+        if (existing[0].count > 0) {
+            return res.status(400).json({ message: 'Banking details already exist. You can only have one banking record.' });
+        }
+        
+        const [result] = await pool.execute(
+            `INSERT INTO Banking_Details (P_No_O_No, Bank_Name, Account_Title, Account_Number, Branch_Code, Branch_Address, IBAN, Routing_Number)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [req.user.pNoONo, bank_name, account_title, account_number, branch_code, branch_address, iban, routing_number]
+        );
+        
+        // Fetch the newly created banking details to return to frontend
+        const [newBankingDetails] = await pool.execute(
+            'SELECT * FROM Banking_Details WHERE Account_ID = ?',
+            [result.insertId]
+        );
+        
+        res.status(201).json(newBankingDetails[0]);
+    } catch (error) {
+        console.error('Failed to add banking details:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+app.put('/api/parent/banking/update', authenticateToken, async (req, res) => {
+    try {
+        const { bank_name, account_title, account_number, branch_code, branch_address, iban, routing_number } = req.body;
+        
+        console.log('Updating banking details for user:', req.user.pNoONo);
+        console.log('Update data:', { bank_name, account_title, account_number, branch_code, branch_address, iban, routing_number });
+        
+        // First check if banking details exist for this user
+        const [existing] = await pool.execute(
+            'SELECT COUNT(*) as count FROM Banking_Details WHERE P_No_O_No = ?',
+            [req.user.pNoONo]
+        );
+        
+        console.log('Existing records count:', existing[0].count);
+        
+        if (existing[0].count === 0) {
+            return res.status(404).json({ message: 'No banking details found to update. Please add banking details first.' });
+        }
+        
+        const [result] = await pool.execute(
+            `UPDATE Banking_Details 
+             SET Bank_Name = ?, Account_Title = ?, Account_Number = ?, Branch_Code = ?, Branch_Address = ?, IBAN = ?, Routing_Number = ?
+             WHERE P_No_O_No = ?`,
+            [bank_name, account_title, account_number, branch_code, branch_address, iban, routing_number, req.user.pNoONo]
+        );
+        
+        console.log('Update result:', result);
+        
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'Banking details not found' });
+        }
+        
+        // Fetch the updated banking details to return to frontend
+        const [updatedBankingDetails] = await pool.execute(
+            'SELECT * FROM Banking_Details WHERE P_No_O_No = ?',
+            [req.user.pNoONo]
+        );
+        
+        console.log('Updated banking details:', updatedBankingDetails[0]);
+        
+        res.json(updatedBankingDetails[0]);
+    } catch (error) {
+        console.error('Failed to update banking details:', error);
+        console.error('Error details:', error.message);
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+});
+
+app.delete('/api/parent/banking/delete', authenticateToken, async (req, res) => {
+    try {
+        const [result] = await pool.execute(
+            'DELETE FROM Banking_Details WHERE P_No_O_No = ?',
+            [req.user.pNoONo]
+        );
+        
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ message: 'Banking details not found' });
+        }
+        
+        res.json({ message: 'Banking details deleted successfully' });
+    } catch (error) {
+        console.error('Failed to delete banking details:', error);
+        res.status(500).json({ message: 'Server error' });
     }
 });
 

@@ -33,6 +33,7 @@ import { ChildDetail } from '@/sections/ChildDetail';
 import { GrantGadgetManager } from '@/sections/GrantGadgetManager';
 import { ReportsExports } from '@/sections/ReportsExports';
 import RequestsTab from '@/components/Admin/RequestsTab';
+import AuthorityManagement from '@/components/Admin/AuthorityManagement';
 import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
 import { getAllNotifications, getUnreadCount } from '@/lib/notifications';
@@ -64,7 +65,8 @@ const navigation: NavigationItem[] = [
   { id: 'parents', label: 'Beneficiaries', icon: Users },
   { id: 'grants', label: 'Grants & Gadgets', icon: Wallet },
   { id: 'reports', label: 'Reports', icon: FileSpreadsheet },
-  { id: 'requests', label: 'Requests', icon: Inbox }, 
+  { id: 'requests', label: 'Requests', icon: Inbox },
+  { id: 'settings', label: 'Authority Settings', icon: Shield }, 
 ];
 
 function App() {
@@ -217,6 +219,8 @@ function App() {
         return <ReportsExports onNavigate={navigateTo} />;
       case 'requests':  // <-- ADD THIS
         return <RequestsTab />;
+      case 'settings':
+        return <AuthorityManagement />;
       default:
         return isFinanceOfficer ? <GrantGadgetManager onNavigate={navigateTo} /> : <Dashboard onNavigate={navigateTo} />;
     }

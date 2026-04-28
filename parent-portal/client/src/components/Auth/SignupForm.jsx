@@ -133,7 +133,6 @@ const SignupForm = () => {
               type="email"
               value={formData.email}
               onChange={e => setFormData({...formData, email: e.target.value})}
-              required
             />
           </div>
 

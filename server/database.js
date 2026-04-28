@@ -90,6 +90,17 @@ export async function ensureSchema() {
     await addColumnIfMissing(connection, 'Child_Gadgets', 'Tax_18_Percent', 'DECIMAL(10,2) GENERATED ALWAYS AS (Base_Cost * 0.18) STORED');
     await addColumnIfMissing(connection, 'Child_Gadgets', 'Total_Cost', 'DECIMAL(10,2) GENERATED ALWAYS AS (Base_Cost * 1.18) STORED');
     await addColumnIfMissing(connection, 'Child_Gadgets', 'Acquisition_Type', "ENUM('Off the Shelf', 'Customized', 'Reimbursed') NULL");
+
+    // Create authority_passwords table if it doesn't exist
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS authority_passwords (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        authority VARCHAR(50) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
   } finally {
     connection.release();
   }

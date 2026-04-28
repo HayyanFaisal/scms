@@ -1,0 +1,9 @@
+.authority-app {
+    min-height: 100vh;
+    background: #f5f5f5;
+}
+
+/* Dark mode support */
+.dark .authority-app {
+    background: #0f172a;
+}

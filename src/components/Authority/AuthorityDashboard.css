@@ -1,0 +1,306 @@
+.authority-dashboard {
+    min-height: 100vh;
+    background: var(--authority-bg-primary);
+}
+
+.dashboard-header {
+    background: var(--authority-bg-card);
+    border-bottom: 1px solid var(--authority-border-primary);
+    padding: 0 1.5rem;
+    box-shadow: var(--authority-shadow-sm);
+}
+
+.header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    height: 4rem;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.header-content h1 {
+    color: var(--authority-text-primary);
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin: 0;
+}
+
+.authority-info {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.authority-badge {
+    background: linear-gradient(135deg, var(--authority-accent-primary) 0%, var(--authority-accent-secondary) 100%);
+    color: var(--authority-text-inverse);
+    padding: 0.5rem 1rem;
+    border-radius: 9999px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    box-shadow: var(--authority-shadow-sm);
+}
+
+.logout-btn {
+    background: var(--authority-error);
+    color: var(--authority-text-inverse);
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: var(--authority-radius-md);
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    box-shadow: var(--authority-shadow-sm);
+}
+
+.logout-btn:hover {
+    background: #dc2626;
+    transform: translateY(-1px);
+    box-shadow: var(--authority-shadow-md);
+}
+
+.dashboard-nav {
+    background: var(--authority-bg-card);
+    border-bottom: 1px solid var(--authority-border-primary);
+    padding: 0 1.5rem;
+}
+
+.dashboard-nav {
+    display: flex;
+    gap: 0;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.nav-tab {
+    background: none;
+    border: none;
+    padding: 1rem 1.5rem;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--authority-text-secondary);
+    border-bottom: 3px solid transparent;
+    transition: all 0.3s ease;
+}
+
+.nav-tab:hover {
+    color: var(--authority-text-primary);
+    background: var(--authority-bg-secondary);
+}
+
+.nav-tab.active {
+    color: var(--authority-accent-primary);
+    border-bottom-color: var(--authority-accent-primary);
+    background: var(--authority-bg-secondary);
+}
+
+.dashboard-content {
+    padding: 1.5rem;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.authority-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 2rem;
+}
+
+.stat-card {
+    background: var(--authority-bg-card);
+    padding: 1.5rem;
+    border-radius: var(--authority-radius-lg);
+    box-shadow: var(--authority-shadow-sm);
+    border-left: 4px solid var(--authority-accent-primary);
+    transition: all 0.3s ease;
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--authority-shadow-md);
+    border-color: var(--authority-accent-secondary);
+}
+
+.stat-card.pending {
+    border-left-color: var(--authority-warning);
+}
+
+.stat-card h3 {
+    color: var(--authority-text-secondary);
+    font-size: 0.875rem;
+    font-weight: 500;
+    margin: 0 0 0.5rem 0;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.stat-number {
+    color: var(--authority-text-primary);
+    font-size: 2rem;
+    font-weight: 700;
+    margin: 0;
+}
+
+.data-table {
+    background: var(--authority-bg-card);
+    border-radius: var(--authority-radius-lg);
+    padding: 1.5rem;
+    box-shadow: var(--authority-shadow-sm);
+    overflow-x: auto;
+}
+
+.data-table h3 {
+    color: var(--authority-text-primary);
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin: 0 0 1.25rem 0;
+}
+
+.data-table table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 600px;
+}
+
+.data-table th {
+    background: var(--authority-bg-secondary);
+    color: var(--authority-text-primary);
+    font-weight: 600;
+    text-align: left;
+    padding: 0.75rem 1rem;
+    border-bottom: 2px solid var(--authority-border-primary);
+    font-size: 0.875rem;
+}
+
+.data-table td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--authority-border-primary);
+    color: var(--authority-text-secondary);
+    font-size: 0.875rem;
+}
+
+.data-table tr:hover {
+    background: var(--authority-bg-secondary);
+}
+
+.status-badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.status-badge.active {
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--authority-success);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.status-badge.pending {
+    background: rgba(245, 158, 11, 0.1);
+    color: var(--authority-warning);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.status-badge.approved {
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--authority-success);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.status-badge.issued {
+    background: rgba(59, 130, 246, 0.1);
+    color: var(--authority-accent-primary);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.status-badge.rejected {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--authority-error);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.loading {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 50vh;
+    color: var(--authority-text-secondary);
+    font-size: 1.125rem;
+}
+
+/* Dark mode support */
+.dark .authority-dashboard {
+    background: #0f172a;
+}
+
+.dark .dashboard-header {
+    background: #1e293b;
+    border-bottom-color: #334155;
+}
+
+.dark .header-content h1 {
+    color: #f1f5f9;
+}
+
+.dark .dashboard-nav {
+    background: #1e293b;
+    border-bottom-color: #334155;
+}
+
+.dark .nav-tab {
+    color: #94a3b8;
+}
+
+.dark .nav-tab:hover {
+    color: #f1f5f9;
+    background: #334155;
+}
+
+.dark .nav-tab.active {
+    color: #a5b4fc;
+    border-bottom-color: #a5b4fc;
+    background: #334155;
+}
+
+.dark .stat-card {
+    background: #1e293b;
+    border-left-color: #667eea;
+}
+
+.dark .stat-card h3 {
+    color: #94a3b8;
+}
+
+.dark .stat-number {
+    color: #f1f5f9;
+}
+
+.dark .data-table {
+    background: #1e293b;
+}
+
+.dark .data-table h3 {
+    color: #f1f5f9;
+}
+
+.dark .data-table th {
+    background: #334155;
+    color: #f1f5f9;
+    border-bottom-color: #475569;
+}
+
+.dark .data-table td {
+    color: #e2e8f0;
+    border-bottom-color: #334155;
+}
+
+.dark .data-table tr:hover {
+    background: #334155;
+}

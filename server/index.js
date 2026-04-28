@@ -4,6 +4,7 @@ import 'dotenv/config';
 import path from 'path';
 import multer from 'multer';
 import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
 import { pool, query, transaction, ensureSchema } from './database.js';
@@ -21,6 +22,9 @@ import axios from 'axios';
 // Portal sync configuration
 const PORTAL_API_URL = process.env.PORTAL_API_URL || 'http://127.0.0.1:4000';
 const PORTAL_API_KEY = process.env.PORTAL_API_KEY;
+
+// JWT Secret for authentication
+const JWT_SECRET = process.env.JWT_SECRET || 'fallback_jwt_secret_change_in_production';
 
 
 await fs.mkdir(parentDocUploadDir, { recursive: true });
@@ -977,6 +981,204 @@ app.get('/api/admin/document-view', async (req, res) => {
         res.status(404).json({ error: 'Document not found', details: error.message });
     }
 });
+
+// Authority authentication endpoints
+app.post('/api/auth/authority-login', async (req, res) => {
+    const { authority, password } = req.body;
+    try {
+        // Create authority_passwords table if it doesn't exist
+        await pool.execute(`
+            CREATE TABLE IF NOT EXISTS authority_passwords (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                authority VARCHAR(50) UNIQUE NOT NULL,
+                password VARCHAR(255) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+
+        // Get authority password from database or use default
+        const [authRows] = await pool.execute(
+            'SELECT password FROM authority_passwords WHERE authority = ?',
+            [authority]
+        );
+
+        let correctPassword = '12345678'; // Default password
+        
+        if (authRows.length > 0) {
+            correctPassword = authRows[0].password;
+        } else {
+            // Insert default password for new authority
+            await pool.execute(
+                'INSERT INTO authority_passwords (authority, password) VALUES (?, ?)',
+                [authority, correctPassword]
+            );
+        }
+
+        if (password === correctPassword) {
+            const token = jwt.sign({ type: 'authority', authority }, JWT_SECRET, { expiresIn: '24h' });
+            res.json({ token, authority });
+        } else {
+            res.status(401).json({ message: 'Invalid credentials' });
+        }
+    } catch (error) {
+        console.error('Authority login error:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// Authority password management endpoint
+app.post('/api/auth/update-authority-password', async (req, res) => {
+    const { authority, currentPassword, newPassword } = req.body;
+    
+    try {
+        // Get current password
+        const [authRows] = await pool.execute(
+            'SELECT password FROM authority_passwords WHERE authority = ?',
+            [authority]
+        );
+
+        if (authRows.length === 0) {
+            return res.status(404).json({ message: 'Authority not found' });
+        }
+
+        const currentStoredPassword = authRows[0].password;
+        
+        // Verify current password
+        if (currentPassword !== currentStoredPassword) {
+            return res.status(401).json({ message: 'Current password is incorrect' });
+        }
+
+        // Update password
+        await pool.execute(
+            'UPDATE authority_passwords SET password = ? WHERE authority = ?',
+            [newPassword, authority]
+        );
+
+        res.json({ message: 'Password updated successfully' });
+    } catch (error) {
+        console.error('Password update error:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// Get all authorities for admin settings
+app.get('/api/auth/authorities', async (req, res) => {
+    try {
+        const authorities = [
+            { value: 'HQ COMNOR', label: 'HQ COMNOR' },
+            { value: 'HQ COMKAR', label: 'HQ COMKAR' },
+            { value: 'HQ COMCEP', label: 'HQ COMCEP' },
+            { value: 'HQ PMSA', label: 'HQ PMSA' },
+            { value: 'HQ COMPAK', label: 'HQ COMPAK' },
+            { value: 'HQ COMCOAST', label: 'HQ COMCOAST' },
+            { value: 'HQ FOST', label: 'HQ FOST' },
+            { value: 'HQ NSFC', label: 'HQ NSFC' },
+            { value: 'HQ COMLOG', label: 'HQ COMLOG' }
+        ];
+
+        // Get password status for each authority
+        const [passwordRows] = await pool.execute('SELECT authority, password FROM authority_passwords');
+        
+        const authoritiesWithStatus = authorities.map(auth => {
+            const passwordRecord = passwordRows.find(row => row.authority === auth.value);
+            return {
+                ...auth,
+                hasCustomPassword: passwordRecord && passwordRecord.password !== '12345678',
+                lastUpdated: passwordRecord ? null : 'Never set'
+            };
+        });
+
+        res.json(authoritiesWithStatus);
+    } catch (error) {
+        console.error('Get authorities error:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// Authority middleware to check authentication and extract authority
+const authenticateAuthority = (req, res, next) => {
+    const token = req.headers.authorization?.split(' ')[1];
+    
+    if (!token) {
+        return res.status(401).json({ message: 'No token provided' });
+    }
+
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        
+        if (decoded.type !== 'authority') {
+            return res.status(403).json({ message: 'Invalid token type' });
+        }
+        
+        req.authority = decoded.authority;
+        next();
+    } catch (error) {
+        return res.status(401).json({ message: 'Invalid token' });
+    }
+};
+
+// Authority-specific data endpoints
+app.get('/api/authority/parents', authenticateAuthority, async (req, res) => {
+    try {
+        const [parents] = await pool.execute(
+            'SELECT * FROM Parent_Beneficiary WHERE Admin_Authority = ? ORDER BY Parent_Name',
+            [req.authority]
+        );
+        res.json(parents);
+    } catch (error) {
+        console.error('Failed to fetch authority parents:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+app.get('/api/authority/children', authenticateAuthority, async (req, res) => {
+    try {
+        const [children] = await pool.execute(`
+            SELECT dc.* FROM Dependent_Children dc
+            INNER JOIN Parent_Beneficiary pb ON dc.P_No_O_No = pb.P_No_O_No
+            WHERE pb.Admin_Authority = ?
+            ORDER BY dc.Child_Name
+        `, [req.authority]);
+        res.json(children);
+    } catch (error) {
+        console.error('Failed to fetch authority children:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+app.get('/api/authority/grants', authenticateAuthority, async (req, res) => {
+    try {
+        const [grants] = await pool.execute(`
+            SELECT mg.* FROM Monthly_Grants mg
+            INNER JOIN Dependent_Children dc ON mg.Child_ID = dc.Child_ID
+            INNER JOIN Parent_Beneficiary pb ON dc.P_No_O_No = pb.P_No_O_No
+            WHERE pb.Admin_Authority = ?
+            ORDER BY mg.Grant_ID DESC
+        `, [req.authority]);
+        res.json(grants);
+    } catch (error) {
+        console.error('Failed to fetch authority grants:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+app.get('/api/authority/gadgets', authenticateAuthority, async (req, res) => {
+    try {
+        const [gadgets] = await pool.execute(`
+            SELECT cg.* FROM Child_Gadgets cg
+            INNER JOIN Dependent_Children dc ON cg.Child_ID = dc.Child_ID
+            INNER JOIN Parent_Beneficiary pb ON dc.P_No_O_No = pb.P_No_O_No
+            WHERE pb.Admin_Authority = ?
+            ORDER BY cg.Gadget_ID DESC
+        `, [req.authority]);
+        res.json(gadgets);
+    } catch (error) {
+        console.error('Failed to fetch authority gadgets:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
 //===============================================================================================================
 
 app.listen(port, () => {

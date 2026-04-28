@@ -11,7 +11,14 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
-  // ADD THIS:
+  build: {
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        authority: path.resolve(__dirname, 'authority.html'),
+      },
+    },
+  },
   server: {
     proxy: {
       '/api': {

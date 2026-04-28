@@ -2,6 +2,7 @@ import { Routes, Route, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import ChildrenList from './ChildrenList'
 import AddChildForm from './AddChildForm'
+import Banking from './Banking'
 import Profile from './Profile'
 import StatusBadge from './StatusBadge'
 import './Dashboard.css'
@@ -14,6 +15,7 @@ const Dashboard = () => {
     { path: '/dashboard', label: 'Overview', icon: '📊' },
     { path: '/dashboard/children', label: 'My Children', icon: '👶' },
     { path: '/dashboard/add-child', label: 'Add Child', icon: '➕' },
+    { path: '/dashboard/banking', label: 'Banking', icon: '🏦' },
     { path: '/dashboard/profile', label: 'Profile', icon: '👤' },
   ]
 
@@ -52,6 +54,7 @@ const Dashboard = () => {
           <Route path="/" element={<Overview />} />
           <Route path="/children" element={<ChildrenList />} />
           <Route path="/add-child" element={<AddChildForm />} />
+          <Route path="/banking" element={<Banking />} />
           <Route path="/profile" element={<Profile />} />
         </Routes>
       </main>
