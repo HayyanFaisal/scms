@@ -724,13 +724,18 @@ const getAllApprovals = async () => {
 // getPendingApprovals for the approve action 
 const getPendingApprovals = async () => {
     try {
+        console.log('[Portal Sync] Fetching pending approvals from:', `${PORTAL_API_URL}/api/sync/pending`);
+        // Fetch all pending requests (including children) from portal
         const response = await axios.get(`${PORTAL_API_URL}/api/sync/pending`, {
             headers: { 'x-api-key': PORTAL_API_KEY },
             timeout: 5000
         });
+        
+        console.log('[Portal Sync] Fetched pending approvals:', response.data.length);
+        console.log('[Portal Sync] Response data:', response.data);
         return response.data;
     } catch (error) {
-        console.error('[Portal Sync] Failed to fetch pending:', error.message);
+        console.error('[Portal Sync] Failed to fetch pending approvals:', error.message);
         return [];
     }
 };
@@ -766,10 +771,44 @@ const syncParentToPortal = async (parentData, adminId) => {
 // GET: List pending approval requests from parent portal
 app.get('/api/admin/pending-approvals', async (req, res) => {
     try {
-        const approvals = await getAllApprovals();
+        const approvals = await getPendingApprovals();
         res.json(approvals);
     } catch (error) {
         sendError(res, error, 'Failed to fetch approvals');
+    }
+});
+
+// GET: List children with status from parent portal
+app.get('/api/admin/children', async (req, res) => {
+    try {
+        const response = await axios.get(`${PORTAL_API_URL}/api/admin/children`, 
+            {
+                headers: { 'x-api-key': PORTAL_API_KEY },
+                timeout: 5000
+            }
+        );
+        res.json(response.data);
+    } catch (error) {
+        sendError(res, error, 'Failed to fetch children');
+    }
+});
+
+// POST: Update child status
+app.post('/api/admin/update-child-status/:childId', async (req, res) => {
+    try {
+        const { childId } = req.params;
+        const { status } = req.body;
+        
+        const response = await axios.post(`${PORTAL_API_URL}/api/admin/update-child-status/${childId}`, 
+            { status },
+            {
+                headers: { 'x-api-key': PORTAL_API_KEY },
+                timeout: 5000
+            }
+        );
+        res.json(response.data);
+    } catch (error) {
+        sendError(res, error, 'Failed to update child status');
     }
 });
 
@@ -785,7 +824,7 @@ app.post('/api/admin/approve-request', async (req, res) => {
     try {
         // Get fresh pending list to find the request
         const approvals = await getPendingApprovals();
-        const request = approvals.find(a => a.request_id === Number(requestId));
+        const request = approvals.find(a => (a.id || a.request_id) === Number(requestId));
 
         if (!request) {
             res.status(404).json({ message: 'Request not found or already processed' });
@@ -820,24 +859,29 @@ app.post('/api/admin/approve-request', async (req, res) => {
                         ]
                     );
                 }
-            } else if (request.request_typeA === 'child_addition') {
-                const payload = request.payload;
-                const result = await query(
-                    `INSERT INTO Dependent_Children 
-                     (P_No_O_No, Child_Name, Age, CNIC_BForm_No, Disease_Disability, 
-                      Disability_Category, School)
-                     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                    [
-                        request.p_no_o_no,
-                        payload.childName,
-                        payload.age,
-                        payload.cnicBformNo,
-                        payload.diseaseDisability,
-                        payload.disabilityCategory,
-                        payload.school
-                    ]
-                );
-                mainDbChildId = result.insertId;
+            } else if (request.request_type === 'child_addition') {
+                // For child additions, just update the status since child is already in database
+                console.log('Admin: Approving child addition, requestId:', requestId);
+                console.log('Admin: Request payload:', request.payload);
+                
+                const newStatus = action === 'approve' ? 'approved' : 'rejected';
+                
+                // Get the actual Child_ID from the request
+                const childIdToUpdate = request.id || requestId;
+                console.log('Admin: Updating child with ID:', childIdToUpdate, 'to status:', newStatus);
+                
+                try {
+                    const updateResult = await query(
+                        'UPDATE dependent_children SET Status = ? WHERE Child_ID = ?',
+                        [newStatus, childIdToUpdate]
+                    );
+                    console.log('Admin: Child status update result:', updateResult);
+                } catch (updateError) {
+                    console.error('Admin: Failed to update child status:', updateError);
+                    throw updateError;
+                }
+                
+                mainDbChildId = childIdToUpdate; // Child already exists, use existing ID
             }
         }
 

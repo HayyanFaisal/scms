@@ -126,14 +126,14 @@ const RequestsTab = () => {
                 <div className={`requests-container ${filter}`}>
                     {requests.map(req => (
                         <div 
-                            key={req.request_id} 
+                            key={`${req.request_type}-${req.id || req.request_id}`} 
                             className={`request-item ${req.status} ${filter}`}
                             onClick={() => setSelectedRequest(req)}
                         >
                             <div className="request-icon">{getRequestIcon(req.request_type)}</div>
                             <div className="request-info">
                                 <h4>
-                                    {req.parent_name}
+                                    {req.parent_name || 'Unknown Parent'}
                                     {req.request_type === 'child_addition' && (
                                         <span className="child-name">
                                             → {(() => {
@@ -147,7 +147,7 @@ const RequestsTab = () => {
                                 </h4>
                                 <p className="request-meta">
                                     <span className="type">{req.request_type.replace(/_/g, ' ')}</span>
-                                    <span className="date">{formatDate(req.requested_at)}</span>
+                                    <span className="date">{formatDate(req.created_at || req.requested_at)}</span>
                                 </p>
                                 <p className="request-id">P.No: {req.p_no_o_no} | CNIC: {req.cnic}</p>
                                 <span className={`origin-tag ${req.origin}`}>
@@ -276,8 +276,8 @@ const RequestsTab = () => {
 
                         {selectedRequest.status === 'pending' && (
                             <div className="modal-footer">
-                                <button className="btn-reject" onClick={() => handleReject(selectedRequest.request_id)} disabled={processing}>Reject</button>
-                                <button className="btn-approve" onClick={() => handleApprove(selectedRequest.request_id)} disabled={processing}>
+                                <button className="btn-reject" onClick={() => handleReject(selectedRequest.id || selectedRequest.request_id)} disabled={processing}>Reject</button>
+                                <button className="btn-approve" onClick={() => handleApprove(selectedRequest.id || selectedRequest.request_id)} disabled={processing}>
                                     {processing ? 'Processing...' : 'Approve & Add to DB'}
                                 </button>
                             </div>

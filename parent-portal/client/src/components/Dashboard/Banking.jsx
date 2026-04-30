@@ -19,7 +19,8 @@ const Banking = () => {
     branch_code: '',
     branch_address: '',
     iban: '',
-    routing_number: ''
+    routing_number: '',
+    cnic_of_account_holder: ''
   })
 
   useEffect(() => {
@@ -38,13 +39,14 @@ const Banking = () => {
           const bankingData = data[0]
           setBankingDetails(bankingData)
           setFormData({
-            bank_name: bankingData.bank_name || '',
-            account_title: bankingData.account_title || '',
-            account_number: bankingData.account_number || '',
-            branch_code: bankingData.branch_code || '',
-            branch_address: bankingData.branch_address || '',
-            iban: bankingData.iban || '',
-            routing_number: bankingData.routing_number || ''
+            bank_name: bankingData.Bank_Name || bankingData.Bank_Name_Branch?.split(',')[0] || '',
+            account_title: bankingData.Account_Title || '',
+            account_number: bankingData.Account_Number || '',
+            branch_code: bankingData.Branch_Code || '',
+            branch_address: bankingData.Branch_Address || bankingData.Bank_Name_Branch?.split(',')[1] || '',
+            iban: bankingData.IBAN || '',
+            routing_number: bankingData.Routing_Number || '',
+            cnic_of_account_holder: bankingData.CNIC_of_Account_Holder || ''
           })
         }
       } else {
@@ -90,13 +92,14 @@ const Banking = () => {
         setMessage(bankingDetails ? 'Banking details updated successfully!' : 'Banking details added successfully!')
         setBankingDetails(data)
         setFormData({
-          bank_name: data.bank_name || '',
-          account_title: data.account_title || '',
-          account_number: data.account_number || '',
-          branch_code: data.branch_code || '',
-          branch_address: data.branch_address || '',
-          iban: data.iban || '',
-          routing_number: data.routing_number || ''
+          bank_name: data.Bank_Name || data.Bank_Name_Branch?.split(',')[0] || '',
+          account_title: data.Account_Title || '',
+          account_number: data.Account_Number || '',
+          branch_code: data.Branch_Code || '',
+          branch_address: data.Branch_Address || data.Bank_Name_Branch?.split(',')[1] || '',
+          iban: data.IBAN || '',
+          routing_number: data.Routing_Number || '',
+          cnic_of_account_holder: data.CNIC_of_Account_Holder || ''
         })
         setIsEditing(false)
       } else {
@@ -158,7 +161,8 @@ const Banking = () => {
           branch_code: '',
           branch_address: '',
           iban: '',
-          routing_number: ''
+          routing_number: '',
+          cnic_of_account_holder: ''
         })
         setMessage('Banking details deleted successfully!')
       } else {
@@ -342,6 +346,21 @@ const Banking = () => {
                     className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
+
+                <div className="space-y-2">
+                  <label htmlFor="cnic_of_account_holder" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    CNIC of Account Holder
+                  </label>
+                  <input
+                    type="text"
+                    id="cnic_of_account_holder"
+                    name="cnic_of_account_holder"
+                    value={formData.cnic_of_account_holder}
+                    onChange={handleInputChange}
+                    placeholder="12345-1234567-8"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
               </div>
 
               <div className="flex justify-between gap-4 mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
@@ -366,31 +385,35 @@ const Banking = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Bank Name</label>
-                  <p className="text-gray-900 dark:text-gray-100 font-medium">{bankingDetails.bank_name}</p>
+                  <p className="text-gray-900 dark:text-gray-100 font-medium">{bankingDetails.Bank_Name || (bankingDetails.Bank_Name_Branch && bankingDetails.Bank_Name_Branch.split(',')[0])}</p>
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Account Title</label>
-                  <p className="text-gray-900 dark:text-gray-100 font-medium">{bankingDetails.account_title}</p>
+                  <p className="text-gray-900 dark:text-gray-100 font-medium">{bankingDetails.Account_Title}</p>
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Account Number</label>
-                  <p className="text-gray-900 dark:text-gray-100 font-medium">{bankingDetails.account_number}</p>
+                  <p className="text-gray-900 dark:text-gray-100 font-medium">{bankingDetails.Account_Number || 'N/A'}</p>
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Branch Code</label>
-                  <p className="text-gray-900 dark:text-gray-100 font-medium">{bankingDetails.branch_code || 'N/A'}</p>
+                  <p className="text-gray-900 dark:text-gray-100 font-medium">{bankingDetails.Branch_Code || 'N/A'}</p>
                 </div>
                 <div className="space-y-2 md:col-span-2">
                   <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Branch Address</label>
-                  <p className="text-gray-900 dark:text-gray-100 font-medium">{bankingDetails.branch_address || 'N/A'}</p>
+                  <p className="text-gray-900 dark:text-gray-100 font-medium">{bankingDetails.Branch_Address || (bankingDetails.Bank_Name_Branch && bankingDetails.Bank_Name_Branch.split(',')[1]) || 'N/A'}</p>
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">IBAN</label>
-                  <p className="text-gray-900 dark:text-gray-100 font-medium">{bankingDetails.iban || 'N/A'}</p>
+                  <p className="text-gray-900 dark:text-gray-100 font-medium">{bankingDetails.IBAN || 'N/A'}</p>
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Routing Number</label>
-                  <p className="text-gray-900 dark:text-gray-100 font-medium">{bankingDetails.routing_number || 'N/A'}</p>
+                  <p className="text-gray-900 dark:text-gray-100 font-medium">{bankingDetails.Routing_Number || 'N/A'}</p>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">CNIC of Account Holder</label>
+                  <p className="text-gray-900 dark:text-gray-100 font-medium">{bankingDetails.CNIC_of_Account_Holder || 'N/A'}</p>
                 </div>
               </div>
             </div>

@@ -41,9 +41,7 @@ const UnifiedLogin = () => {
       const data = await response.json()
 
       if (response.ok) {
-        localStorage.setItem('token', data.token)
-        localStorage.setItem('user', JSON.stringify(data.user))
-        login(data.user)
+        login(data.token, data.user)
         navigate('/dashboard')
       } else {
         setError(data.error || 'Login failed')
@@ -62,7 +60,7 @@ const UnifiedLogin = () => {
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center shadow-md">
+              <div className="w-12 h-12 rounded-lg flex items-center justify-center shadow-md">
                 <img src={pakistanNavyLogo} alt="Pakistan Navy" className="w-10 h-10 object-contain" />
               </div>
               <div>
@@ -78,13 +76,13 @@ const UnifiedLogin = () => {
               <span className="text-sm font-medium text-gray-500 dark:text-gray-400">
                 Institutional Access Portal
               </span>
-              <div className="p-8 space-y-6 bg-white dark:bg-dark-surface"></div>
+              {/* <div className="p-8 space-y-6 bg-white dark:bg-dark-surface"></div> */}
               <button className="text-sky-700 dark:text-sky-400 font-bold border-b-2 border-sky-700 dark:border-sky-400">
                 Login
               </button>
-              <button className="text-gray-500 dark:text-gray-400 hover:text-sky-800 dark:hover:text-sky-300">
+              {/* <button className="text-gray-500 dark:text-gray-400 hover:text-sky-800 dark:hover:text-sky-300">
                 Help
-              </button>
+              </button> */}
               <button 
                 onClick={toggleDarkMode}
                 className="p-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
@@ -117,7 +115,7 @@ const UnifiedLogin = () => {
                 className="absolute inset-0 w-full h-full object-cover" 
                 src={parentPicture}
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-dark-primary/80 via-primary/40 to-transparent">
+              {/* <div className="absolute inset-0 bg-gradient-to-t from-dark-primary/80 via-primary/40 to-transparent">
                 <div className="absolute bottom-0 left-0 right-0 p-12">
                   <h2 className="text-4xl font-bold text-white mb-4 leading-tight">
                     Securing maritime futures with institutional integrity.
@@ -126,7 +124,7 @@ const UnifiedLogin = () => {
                     The PN Benevolent Association's unified ecosystem for administrative, medical, and educational excellence.
                   </p>
                 </div>
-              </div>
+              </div> */}
             </div>
 
             {/* Right Side - Login Form */}
@@ -232,15 +230,15 @@ const UnifiedLogin = () => {
               {/* Register Link */}
               <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-600">
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                  <p className="text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap">
                     New to the platform?
                   </p>
                   <Link 
                     to="/signup" 
                     className="flex items-center gap-2 text-blue-600 dark:text-blue-400 font-bold hover:text-blue-800 dark:hover:text-blue-300 transition-colors group"
                   >
-                    <div className="bg-gradient-to-br from-primary to-primary-dark dark:from-dark-primary dark:to-dark-primary-light p-8 text-white">
-                      Register for Parents
+                    <div className="bg-gradient-to-br from-primary to-primary-dark dark:from-dark-primary dark:to-dark-primary-light p-8 text-white whitespace-nowrap rounded-lg shadow-lg hover:shadow-xl transition-shadow py-4">
+                      <span className="pb-20">Register for Parents  </span>
                       <span className="material-symbols-outlined group-hover:translate-x-1 transition-transform">
                         arrow_forward
                       </span>
@@ -262,7 +260,7 @@ const UnifiedLogin = () => {
                 Institutional Guardian
               </p>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                &copy; 2024 PN Benevolent Association. All rights reserved.
+                &copy; 2026 PN Benevolent Association. All rights reserved.
               </p>
             </div>
             <div className="flex gap-8 text-sm font-semibold text-gray-600 dark:text-gray-400">
