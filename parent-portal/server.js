@@ -173,13 +173,14 @@ const generateDefaultPassword = (pNoONo) => `password@${pNoONo}`;
 
 // Self-registration (New User)
 app.post('/api/auth/signup', authLimiter, async (req, res) => {
-    const { email, password, parentName, pNoONo, rankRate, unit, contactNo, cnic, serviceStatus } = req.body;
+    const { email, password, parentName, pNoONo, rankRate, unit, contactNo, cnic, serviceStatus, adminAuthority } = req.body;
     
     // Ensure all optional fields have default values
     const safeRankRate = rankRate || null;
     const safeUnit = unit || null;
     const safeContactNo = contactNo || null;
     const safeServiceStatus = serviceStatus || 'Serving';
+    const safeAdminAuthority = adminAuthority || 'HQ COMNOR';
     
     try {
         if (!email || !password || !parentName || !pNoONo || !cnic) {
@@ -208,12 +209,12 @@ app.post('/api/auth/signup', authLimiter, async (req, res) => {
         const hashedPassword = await hashPassword(password);
         const verificationToken = crypto.randomBytes(32).toString('hex');
 
-        // Insert new user into parent_beneficiary
+        // Insert new user into parent_beneficiary with ALL fields
         const [result] = await pool.execute(
             `INSERT INTO parent_beneficiary 
-             (P_No_O_No, Parent_Name, Parent_CNIC, Email, Password_Hash, Status, Origin, Created_At)
-             VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-            [pNoONo, parentName, cnic, email, hashedPassword, 'pending', 'self_registered']
+             (P_No_O_No, Parent_Name, Rank_Rate, Unit, Admin_Authority, Service_Status, Parent_CNIC, Contact_No, Email, Password_Hash, Status, Origin, Created_At)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+            [pNoONo, parentName, safeRankRate, safeUnit, safeAdminAuthority, safeServiceStatus, cnic, safeContactNo, email, hashedPassword, 'pending', 'self_registered']
         );
 
         // Create approval request
@@ -221,7 +222,7 @@ app.post('/api/auth/signup', authLimiter, async (req, res) => {
         const approvalPayload = JSON.stringify({
             email, parentName, pNoONo, rankRate: safeRankRate, unit: safeUnit, contactNo: safeContactNo, cnic, serviceStatus: safeServiceStatus,
             origin: 'self_registered',
-            adminAuthority: 'HQ COMNOR'
+            adminAuthority: safeAdminAuthority
         });
         
         const [approvalResult] = await pool.execute(
