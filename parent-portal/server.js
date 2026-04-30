@@ -1099,8 +1099,9 @@ app.get('/api/sync/pending', async (req, res) => {
     try {
         // Fetch parent registration requests (exclude child_addition since we use dependent_children table)
         const [requests] = await pool.execute(
-            `SELECT r.*, p.Email as email, p.Parent_Name as parent_name, p.P_No_O_No as p_no_o_no, 
-                    p.Parent_CNIC as cnic, p.Origin as origin
+            `SELECT r.*, p.Email as email, p.Parent_Name as parent_name, p.P_No_O_No as p_no_o_no,
+                    p.Parent_CNIC as cnic, p.Origin as origin, p.Rank_Rate as rank_rate, p.Unit as unit,
+                    p.Service_Status as service_status, p.Admin_Authority as admin_authority
              FROM Approval_Requests r
              JOIN parent_beneficiary p ON r.user_id = p.P_No_O_No
              WHERE r.request_type != 'child_addition'
