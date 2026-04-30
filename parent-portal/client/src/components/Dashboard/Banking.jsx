@@ -25,7 +25,27 @@ const Banking = () => {
 
   useEffect(() => {
     fetchBankingDetails()
+    fetchParentProfile()
   }, [])
+
+  const fetchParentProfile = async () => {
+    try {
+      const response = await fetch('/api/profile', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      const data = await response.json()
+      
+      if (response.ok && data) {
+        // Pre-fill CNIC from parent profile if available and field is empty
+        setFormData(prev => ({
+          ...prev,
+          cnic_of_account_holder: prev.cnic_of_account_holder || data.cnic || ''
+        }))
+      }
+    } catch (err) {
+      console.error('Failed to fetch parent profile:', err)
+    }
+  }
 
   const fetchBankingDetails = async () => {
     try {

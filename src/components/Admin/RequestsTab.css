@@ -478,6 +478,28 @@
     color: var(--foreground);
 }
 
+.banking-details {
+    margin-top: 24px;
+    padding: 20px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+}
+.dark .banking-details {
+    background: #1e293b;
+    border: 1px solid #334155;
+}
+
+.banking-details h4 {
+    margin: 0 0 16px 0;
+    color: #059669;
+    font-size: 16px;
+    font-weight: 600;
+}
+.dark .banking-details h4 {
+    color: #34d399;
+}
+
 .admin-action {
     margin-top: 24px;
     padding-top: 24px;

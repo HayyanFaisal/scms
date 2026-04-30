@@ -383,12 +383,12 @@ app.get('/api/banking', async (_req, res) => {
 
 app.post('/api/banking', async (req, res) => {
   try {
-    const { P_No_O_No, Account_Title, IBAN, Bank_Name_Branch } = req.body;
+    const { P_No_O_No, Bank_Name, Account_Title, Account_Number, Branch_Code, Branch_Address, IBAN, Routing_Number, CNIC_of_Account_Holder, Bank_Name_Branch } = req.body;
     const result = await query(
       `INSERT INTO Banking_Details
-        (P_No_O_No, Account_Title, IBAN, Bank_Name_Branch)
-       VALUES (?, ?, ?, ?)`,
-      [P_No_O_No, Account_Title, IBAN, Bank_Name_Branch]
+        (P_No_O_No, Bank_Name, Account_Title, Account_Number, Branch_Code, Branch_Address, IBAN, Routing_Number, CNIC_of_Account_Holder, Bank_Name_Branch)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [P_No_O_No, Bank_Name, Account_Title, Account_Number, Branch_Code, Branch_Address, IBAN, Routing_Number, CNIC_of_Account_Holder, Bank_Name_Branch || (Branch_Address ? `${Bank_Name}, ${Branch_Address}` : Bank_Name)]
     );
     res.status(201).json(await getBankingRecord(result.insertId));
   } catch (error) {
@@ -399,12 +399,12 @@ app.post('/api/banking', async (req, res) => {
 app.put('/api/banking/:accountId', async (req, res) => {
   try {
     const accountId = Number(req.params.accountId);
-    const { P_No_O_No, Account_Title, IBAN, Bank_Name_Branch } = req.body;
+    const { P_No_O_No, Bank_Name, Account_Title, Account_Number, Branch_Code, Branch_Address, IBAN, Routing_Number, CNIC_of_Account_Holder, Bank_Name_Branch } = req.body;
     await query(
       `UPDATE Banking_Details
-       SET P_No_O_No = ?, Account_Title = ?, IBAN = ?, Bank_Name_Branch = ?
+       SET P_No_O_No = ?, Bank_Name = ?, Account_Title = ?, Account_Number = ?, Branch_Code = ?, Branch_Address = ?, IBAN = ?, Routing_Number = ?, CNIC_of_Account_Holder = ?, Bank_Name_Branch = ?
        WHERE Account_ID = ?`,
-      [P_No_O_No, Account_Title, IBAN, Bank_Name_Branch, accountId]
+      [P_No_O_No, Bank_Name, Account_Title, Account_Number, Branch_Code, Branch_Address, IBAN, Routing_Number, CNIC_of_Account_Holder, Bank_Name_Branch || (Branch_Address ? `${Bank_Name}, ${Branch_Address}` : Bank_Name), accountId]
     );
     res.json(await getBankingRecord(accountId));
   } catch (error) {
@@ -416,6 +416,21 @@ app.delete('/api/banking/:accountId', async (req, res) => {
   try {
     await query('DELETE FROM Banking_Details WHERE Account_ID = ?', [Number(req.params.accountId)]);
     res.status(204).send();
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+// GET: Banking details by parent P_No_O_No
+app.get('/api/banking/parent/:pNoONo', async (req, res) => {
+  try {
+    const pNoONo = req.params.pNoONo;
+    const rows = await query('SELECT * FROM Banking_Details WHERE P_No_O_No = ?', [pNoONo]);
+    if (rows.length > 0) {
+      res.json(rows[0]);
+    } else {
+      res.status(404).json({ error: 'No banking details found for this parent' });
+    }
   } catch (error) {
     sendError(res, error);
   }

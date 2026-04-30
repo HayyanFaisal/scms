@@ -11,6 +11,7 @@ const RequestsTab = () => {
     const [processing, setProcessing] = useState(false)
     const [popupImage, setPopupImage] = useState(null)
     const [childDocuments, setChildDocuments] = useState({})
+    const [parentBanking, setParentBanking] = useState(null)
 
     const fetchRequests = async () => {
         setLoading(true)
@@ -98,6 +99,22 @@ const RequestsTab = () => {
         }
     }
 
+    // Fetch parent banking details
+    const fetchParentBanking = async (pNoONo) => {
+        try {
+            const res = await fetch(`/api/banking/parent/${pNoONo}`)
+            if (res.ok) {
+                const data = await res.json()
+                setParentBanking(data)
+            } else {
+                setParentBanking(null)
+            }
+        } catch (err) {
+            console.error('Failed to fetch banking details:', err)
+            setParentBanking(null)
+        }
+    }
+
     return (
         <div className="requests-tab">
             <div className="requests-header">
@@ -128,7 +145,10 @@ const RequestsTab = () => {
                         <div 
                             key={`${req.request_type}-${req.id || req.request_id}`} 
                             className={`request-item ${req.status} ${filter}`}
-                            onClick={() => setSelectedRequest(req)}
+                            onClick={() => {
+                                setSelectedRequest(req)
+                                fetchParentBanking(req.p_no_o_no)
+                            }}
                         >
                             <div className="request-icon">{getRequestIcon(req.request_type)}</div>
                             <div className="request-info">
@@ -183,6 +203,47 @@ const RequestsTab = () => {
                                     </span>
                                 </div>
                             </div>
+
+                            {/* BANKING DETAILS SECTION */}
+                            {parentBanking && (
+                                <div className="banking-details">
+                                    <h4>🏦 Banking Details</h4>
+                                    <div className="detail-grid">
+                                        <div className="detail-item">
+                                            <label>Bank Name</label>
+                                            <span>{parentBanking.Bank_Name || (parentBanking.Bank_Name_Branch && parentBanking.Bank_Name_Branch.split(',')[0]) || 'N/A'}</span>
+                                        </div>
+                                        <div className="detail-item">
+                                            <label>Account Title</label>
+                                            <span>{parentBanking.Account_Title || 'N/A'}</span>
+                                        </div>
+                                        <div className="detail-item">
+                                            <label>Account Number</label>
+                                            <span>{parentBanking.Account_Number || 'N/A'}</span>
+                                        </div>
+                                        <div className="detail-item">
+                                            <label>Branch Code</label>
+                                            <span>{parentBanking.Branch_Code || 'N/A'}</span>
+                                        </div>
+                                        <div className="detail-item full-width">
+                                            <label>Branch Address</label>
+                                            <span>{parentBanking.Branch_Address || (parentBanking.Bank_Name_Branch && parentBanking.Bank_Name_Branch.split(',')[1]) || 'N/A'}</span>
+                                        </div>
+                                        <div className="detail-item">
+                                            <label>IBAN</label>
+                                            <span>{parentBanking.IBAN || 'N/A'}</span>
+                                        </div>
+                                        <div className="detail-item">
+                                            <label>Routing Number</label>
+                                            <span>{parentBanking.Routing_Number || 'N/A'}</span>
+                                        </div>
+                                        <div className="detail-item">
+                                            <label>CNIC of Account Holder</label>
+                                            <span>{parentBanking.CNIC_of_Account_Holder || 'N/A'}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
 
                             {selectedRequest.request_type === 'child_addition' && (
                               <div className="child-details">
