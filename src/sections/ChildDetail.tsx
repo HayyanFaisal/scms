@@ -74,6 +74,10 @@ export function ChildDetail({ childId, onBack }: ChildDetailProps) {
               {child.Disability_Category}
             </Badge>
           </div>
+          <div>
+            <p className="text-sm text-slate-500">Disability Certificate No</p>
+            <p className="font-medium">{child.Disability_Certificate_No || 'N/A'}</p>
+          </div>
           <div className="md:col-span-2">
             <p className="text-sm text-slate-500">Disease/Disability</p>
             <p className="font-medium">{child.Disease_Disability}</p>

@@ -14,6 +14,10 @@ export interface ParentBeneficiary {
   Admin_Authority: string;
   Service_Status: ServiceStatus;
   Parent_CNIC: string;
+  No_of_Disabled_Children?: number;
+  Address?: string;
+  Email?: string;
+  Contact_No?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -44,8 +48,14 @@ export interface ScannedDocumentFile {
 export interface BankingDetails {
   Account_ID: number;
   P_No_O_No: string;
+  Bank_Name?: string;
   Account_Title: string;
+  Account_Number?: string;
+  Branch_Code?: string;
+  Branch_Address?: string;
   IBAN: string;
+  Routing_Number?: string;
+  CNIC_of_Account_Holder?: string;
   Bank_Name_Branch: string;
 }
 
@@ -58,7 +68,10 @@ export interface DependentChildren {
   CNIC_BForm_No: string;
   Disease_Disability: string;
   Disability_Category: DisabilityCategory;
+  Disability_Certificate_No?: string;
   School: string;
+  Authority?: string;
+  Category_Allotted_By?: string;
 }
 
 // Financials

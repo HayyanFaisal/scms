@@ -47,7 +47,10 @@ export function ParentForm({ pNo, onSave, onCancel }: ParentFormProps) {
     Unit: '',
     Admin_Authority: '',
     Service_Status: 'Serving' as ServiceStatus,
-    Parent_CNIC: ''
+    Parent_CNIC: '',
+    Address: '',
+    Email: '',
+    No_of_Disabled_Children: 0
   });
 
   // Document form state
@@ -60,8 +63,14 @@ export function ParentForm({ pNo, onSave, onCancel }: ParentFormProps) {
 
   // Banking form state
   const [bankData, setBankData] = useState({
+    Bank_Name: '',
     Account_Title: '',
+    Account_Number: '',
+    Branch_Code: '',
+    Branch_Address: '',
     IBAN: '',
+    Routing_Number: '',
+    CNIC_of_Account_Holder: '',
     Bank_Name_Branch: ''
   });
   const [selectedScanFile, setSelectedScanFile] = useState<File | null>(null);
@@ -79,7 +88,10 @@ export function ParentForm({ pNo, onSave, onCancel }: ParentFormProps) {
         Unit: existingParent.Unit,
         Admin_Authority: existingParent.Admin_Authority,
         Service_Status: existingParent.Service_Status,
-        Parent_CNIC: existingParent.Parent_CNIC
+        Parent_CNIC: existingParent.Parent_CNIC,
+        Address: existingParent.Address || '',
+        Email: existingParent.Email || '',
+        No_of_Disabled_Children: existingParent.No_of_Disabled_Children || 0
       });
     }
     if (existingDoc) {
@@ -92,8 +104,14 @@ export function ParentForm({ pNo, onSave, onCancel }: ParentFormProps) {
     }
     if (existingBank) {
       setBankData({
+        Bank_Name: existingBank.Bank_Name || '',
         Account_Title: existingBank.Account_Title,
+        Account_Number: existingBank.Account_Number || '',
+        Branch_Code: existingBank.Branch_Code || '',
+        Branch_Address: existingBank.Branch_Address || '',
         IBAN: existingBank.IBAN,
+        Routing_Number: existingBank.Routing_Number || '',
+        CNIC_of_Account_Holder: existingBank.CNIC_of_Account_Holder || '',
         Bank_Name_Branch: existingBank.Bank_Name_Branch
       });
     }
@@ -329,6 +347,35 @@ export function ParentForm({ pNo, onSave, onCancel }: ParentFormProps) {
                   />
                   <p className="text-xs text-slate-500">Format: 00000-0000000-0</p>
                 </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="address">Address</Label>
+                  <Input
+                    id="address"
+                    value={parentData.Address}
+                    onChange={(e) => setParentData({ ...parentData, Address: e.target.value })}
+                    placeholder="Residential address"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={parentData.Email}
+                    onChange={(e) => setParentData({ ...parentData, Email: e.target.value })}
+                    placeholder="email@example.com"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="disabledChildren">No. of Disabled Children</Label>
+                  <Input
+                    id="disabledChildren"
+                    type="number"
+                    value={parentData.No_of_Disabled_Children}
+                    onChange={(e) => setParentData({ ...parentData, No_of_Disabled_Children: parseInt(e.target.value) || 0 })}
+                    placeholder="0"
+                  />
+                </div>
               </div>
 
               <div className="border rounded-lg p-4 space-y-4">
@@ -496,6 +543,33 @@ export function ParentForm({ pNo, onSave, onCancel }: ParentFormProps) {
                     placeholder="Enter account title"
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="bankName">Bank Name</Label>
+                  <Input
+                    id="bankName"
+                    value={bankData.Bank_Name}
+                    onChange={(e) => setBankData({ ...bankData, Bank_Name: e.target.value })}
+                    placeholder="e.g., Standard Chartered Bank"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="branchCode">Branch Code</Label>
+                  <Input
+                    id="branchCode"
+                    value={bankData.Branch_Code}
+                    onChange={(e) => setBankData({ ...bankData, Branch_Code: e.target.value })}
+                    placeholder="Branch code"
+                  />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="branchAddress">Branch Address</Label>
+                  <Input
+                    id="branchAddress"
+                    value={bankData.Branch_Address}
+                    onChange={(e) => setBankData({ ...bankData, Branch_Address: e.target.value })}
+                    placeholder="Branch address"
+                  />
+                </div>
                 <div className="space-y-2 md:col-span-2">
                   <Label htmlFor="iban">IBAN</Label>
                   <Input
@@ -506,14 +580,33 @@ export function ParentForm({ pNo, onSave, onCancel }: ParentFormProps) {
                   />
                   <p className="text-xs text-slate-500">24 characters starting with PK</p>
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="routingNumber">Routing Number</Label>
+                  <Input
+                    id="routingNumber"
+                    value={bankData.Routing_Number}
+                    onChange={(e) => setBankData({ ...bankData, Routing_Number: e.target.value })}
+                    placeholder="Routing number"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="cnicAccountHolder">CNIC of Account Holder</Label>
+                  <Input
+                    id="cnicAccountHolder"
+                    value={bankData.CNIC_of_Account_Holder}
+                    onChange={(e) => setBankData({ ...bankData, CNIC_of_Account_Holder: e.target.value })}
+                    placeholder="00000-0000000-0"
+                  />
+                </div>
                 <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="bank">Bank Name & Branch</Label>
+                  <Label htmlFor="bank">Bank Name & Branch (Legacy)</Label>
                   <Input
                     id="bank"
                     value={bankData.Bank_Name_Branch}
                     onChange={(e) => setBankData({ ...bankData, Bank_Name_Branch: e.target.value })}
                     placeholder="e.g., Standard Chartered Bank, Lahore"
                   />
+                  <p className="text-xs text-slate-500">Legacy field - will be auto-generated from Bank Name and Branch Address</p>
                 </div>
               </div>
             </CardContent>

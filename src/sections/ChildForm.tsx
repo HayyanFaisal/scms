@@ -32,6 +32,7 @@ export function ChildForm({ pNo, onSave, onCancel }: ChildFormProps) {
     CNIC_BForm_No: '',
     Disease_Disability: '',
     Disability_Category: 'A' as DisabilityCategory,
+    Disability_Certificate_No: '',
     School: ''
   });
 
@@ -64,6 +65,7 @@ export function ChildForm({ pNo, onSave, onCancel }: ChildFormProps) {
       CNIC_BForm_No: formData.CNIC_BForm_No.trim(),
       Disease_Disability: formData.Disease_Disability.trim(),
       Disability_Category: formData.Disability_Category,
+      Disability_Certificate_No: formData.Disability_Certificate_No.trim(),
       School: formData.School.trim()
     });
 
@@ -172,6 +174,15 @@ export function ChildForm({ pNo, onSave, onCancel }: ChildFormProps) {
                   <SelectItem value="C">Category C</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Disability Certificate No</Label>
+              <Input
+                value={formData.Disability_Certificate_No}
+                onChange={(e) => setFormData(prev => ({ ...prev, Disability_Certificate_No: e.target.value }))}
+                placeholder="Certificate number (if available)"
+              />
             </div>
 
             <div className="space-y-2 md:col-span-2">

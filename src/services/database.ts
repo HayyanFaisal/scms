@@ -41,6 +41,10 @@ function normalizeParent(row: any): ParentBeneficiary {
     Admin_Authority: row.Admin_Authority,
     Service_Status: row.Service_Status,
     Parent_CNIC: row.Parent_CNIC,
+    No_of_Disabled_Children: row.No_of_Disabled_Children,
+    Address: row.Address,
+    Email: row.Email,
+    Contact_No: row.Contact_No,
     created_at: row.created_at,
     updated_at: row.updated_at
   };
@@ -61,8 +65,14 @@ function normalizeBanking(row: any): BankingDetails {
   return {
     Account_ID: toNumber(row.Account_ID),
     P_No_O_No: row.P_No_O_No,
+    Bank_Name: row.Bank_Name,
     Account_Title: row.Account_Title,
+    Account_Number: row.Account_Number,
+    Branch_Code: row.Branch_Code,
+    Branch_Address: row.Branch_Address,
     IBAN: row.IBAN,
+    Routing_Number: row.Routing_Number,
+    CNIC_of_Account_Holder: row.CNIC_of_Account_Holder,
     Bank_Name_Branch: row.Bank_Name_Branch
   };
 }
@@ -76,7 +86,10 @@ function normalizeChild(row: any): DependentChildren {
     CNIC_BForm_No: row.CNIC_BForm_No,
     Disease_Disability: row.Disease_Disability,
     Disability_Category: (row.Disability_Category || row.Category || 'A') as any,
-    School: row.School
+    Disability_Certificate_No: row.Disability_Certificate_No,
+    School: row.School,
+    Authority: row.Authority,
+    Category_Allotted_By: row.Category_Allotted_By
   };
 }
 

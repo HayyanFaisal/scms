@@ -75,7 +75,16 @@ export async function ensureSchema() {
 
     
     await addColumnIfMissing(connection, 'Parent_Beneficiary', 'No_of_Disabled_Children', 'INT DEFAULT 0');
+    await addColumnIfMissing(connection, 'Parent_Beneficiary', 'Address', 'VARCHAR(255) NULL');
+    await addColumnIfMissing(connection, 'Parent_Beneficiary', 'Email', 'VARCHAR(100) NULL');
     await addColumnIfMissing(connection, 'Document_Tracking', 'Total_No_of_Children', 'INT NULL');
+    
+    // Banking columns
+    await addColumnIfMissing(connection, 'Banking_Details', 'Bank_Name', 'VARCHAR(100) NULL');
+    await addColumnIfMissing(connection, 'Banking_Details', 'Account_Number', 'VARCHAR(50) NULL');
+    await addColumnIfMissing(connection, 'Banking_Details', 'Branch_Code', 'VARCHAR(20) NULL');
+    await addColumnIfMissing(connection, 'Banking_Details', 'Branch_Address', 'VARCHAR(255) NULL');
+    await addColumnIfMissing(connection, 'Banking_Details', 'Routing_Number', 'VARCHAR(20) NULL');
     await addColumnIfMissing(connection, 'Banking_Details', 'CNIC_of_Account_Holder', 'VARCHAR(20) NULL');
 
     await addColumnIfMissing(connection, 'Dependent_Children', 'Disability_Category', "CHAR(1) NULL");

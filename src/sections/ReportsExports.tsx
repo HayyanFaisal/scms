@@ -75,6 +75,7 @@ export function ReportsExports({ onNavigate }: ReportsExportsProps) {
 function PayrollExport() {
   const { grants, refresh } = useGrantsWithDetails();
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'expiring'>('all');
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'A' | 'B' | 'C'>('all');
 
   const filteredGrants = grants.filter(grant => {
     const today = new Date();
@@ -82,22 +83,29 @@ function PayrollExport() {
     const isActive = approvedTo >= today;
     const isExpiring = approvedTo <= new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000) && isActive;
 
-    if (statusFilter === 'active') return isActive;
-    if (statusFilter === 'expiring') return isExpiring;
+    if (statusFilter === 'active' && !isActive) return false;
+    if (statusFilter === 'expiring' && !isExpiring) return false;
+    if (categoryFilter !== 'all' && grant.child?.Disability_Category !== categoryFilter) return false;
     return true;
   });
 
   const totalAmount = filteredGrants.reduce((sum, g) => sum + g.Monthly_Amount, 0);
+  const totalCFY = filteredGrants.reduce((sum, g) => sum + (g.Total_CFY_Amount || 0), 0);
 
   const exportToCSV = () => {
-    const headers = ['P/No_O_No', 'Parent_Name', 'Child_Name', 'IBAN', 'Bank_Name_Branch', 'Monthly_Amount', 'Approved_To'];
+    const headers = ['P/No_O_No', 'Parent_Name', 'Child_Name', 'Disability_Category', 'Account_Title', 'IBAN', 'Bank_Name', 'Bank_Branch', 'Account_Number', 'Monthly_Amount', 'Total_CFY_Amount', 'Approved_To'];
     const rows = filteredGrants.map(g => [
       g.parent?.P_No_O_No,
       g.parent?.Parent_Name,
       g.child?.Child_Name,
+      g.child?.Disability_Category,
+      g.banking?.Account_Title,
       g.banking?.IBAN,
-      g.banking?.Bank_Name_Branch,
+      g.banking?.Bank_Name || (g.banking?.Bank_Name_Branch && g.banking?.Bank_Name_Branch.split(',')[0]),
+      g.banking?.Branch_Address || (g.banking?.Bank_Name_Branch && g.banking?.Bank_Name_Branch.split(',')[1]),
+      g.banking?.Account_Number,
       g.Monthly_Amount,
+      g.Total_CFY_Amount,
       g.Approved_To
     ]);
 
@@ -122,7 +130,7 @@ function PayrollExport() {
     <>
       <Card>
         <CardContent className="pt-6">
-          <div className="flex flex-col sm:flex-row gap-4">
+          <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
             <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
               <SelectTrigger className="w-[200px]">
                 <Filter className="w-4 h-4 mr-2" />
@@ -132,6 +140,18 @@ function PayrollExport() {
                 <SelectItem value="all">All Grants</SelectItem>
                 <SelectItem value="active">Active Only</SelectItem>
                 <SelectItem value="expiring">Expiring Soon</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={categoryFilter} onValueChange={(v) => setCategoryFilter(v as any)}>
+              <SelectTrigger className="w-[200px]">
+                <Filter className="w-4 h-4 mr-2" />
+                <SelectValue placeholder="Filter by category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Categories</SelectItem>
+                <SelectItem value="A">Category A</SelectItem>
+                <SelectItem value="B">Category B</SelectItem>
+                <SelectItem value="C">Category C</SelectItem>
               </SelectContent>
             </Select>
             <div className="flex gap-2 ml-auto">
@@ -148,7 +168,7 @@ function PayrollExport() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardContent className="pt-6">
             <p className="text-sm text-slate-500 dark:text-slate-400">Total Records</p>
@@ -157,8 +177,14 @@ function PayrollExport() {
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <p className="text-sm text-slate-500 dark:text-slate-400">Total Monthly Amount</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Monthly Amount</p>
             <p className="text-2xl font-bold dark:text-slate-100">{formatCurrency(totalAmount)}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-slate-500 dark:text-slate-400">Total CFY Amount</p>
+            <p className="text-2xl font-bold dark:text-slate-100">{formatCurrency(totalCFY)}</p>
           </CardContent>
         </Card>
         <Card>
@@ -182,16 +208,19 @@ function PayrollExport() {
                   <TableHead>P/No O/No</TableHead>
                   <TableHead>Parent Name</TableHead>
                   <TableHead>Child Name</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Account Title</TableHead>
                   <TableHead>IBAN</TableHead>
-                  <TableHead>Bank & Branch</TableHead>
-                  <TableHead>Monthly Amount</TableHead>
+                  <TableHead>Bank Name</TableHead>
+                  <TableHead>Monthly</TableHead>
+                  <TableHead>CFY Total</TableHead>
                   <TableHead>Valid Until</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredGrants.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-slate-500 dark:text-slate-400">
+                    <TableCell colSpan={10} className="text-center py-8 text-slate-500 dark:text-slate-400">
                       No grants found
                     </TableCell>
                   </TableRow>
@@ -205,9 +234,20 @@ function PayrollExport() {
                           ? formatChildDisplayName(grant.child.Child_Name, grant.parent?.Parent_Name, grant.parent?.P_No_O_No)
                           : ''}
                       </TableCell>
-                      <TableCell className="font-mono">{grant.banking?.IBAN}</TableCell>
-                      <TableCell>{grant.banking?.Bank_Name_Branch}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className={
+                          grant.child?.Disability_Category === 'A' ? 'border-red-400 text-red-600' :
+                          grant.child?.Disability_Category === 'B' ? 'border-amber-400 text-amber-600' :
+                          'border-green-400 text-green-600'
+                        }>
+                          {grant.child?.Disability_Category || 'N/A'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{grant.banking?.Account_Title}</TableCell>
+                      <TableCell className="font-mono text-xs">{grant.banking?.IBAN}</TableCell>
+                      <TableCell>{grant.banking?.Bank_Name || (grant.banking?.Bank_Name_Branch && grant.banking?.Bank_Name_Branch.split(',')[0])}</TableCell>
                       <TableCell className="font-mono">{formatCurrency(grant.Monthly_Amount)}</TableCell>
+                      <TableCell className="font-mono">{formatCurrency(grant.Total_CFY_Amount || 0)}</TableCell>
                       <TableCell>{formatDate(grant.Approved_To)}</TableCell>
                     </TableRow>
                   ))

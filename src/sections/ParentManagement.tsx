@@ -136,14 +136,14 @@ export function ParentManagement({ onNavigate }: ParentManagementProps) {
                   <TableHead>Rank/Rate</TableHead>
                   <TableHead>Unit</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>CNIC</TableHead>
+                  <TableHead>Children</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredParents.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-slate-500">
+                    <TableCell colSpan={6} className="text-center py-8 text-slate-500">
                       No parents found
                     </TableCell>
                   </TableRow>
@@ -159,7 +159,9 @@ export function ParentManagement({ onNavigate }: ParentManagementProps) {
                           {parent.Service_Status}
                         </Badge>
                       </TableCell>
-                      <TableCell className="font-mono text-sm">{parent.Parent_CNIC}</TableCell>
+                      <TableCell className="text-center">
+                        <Badge variant="secondary">{parent.No_of_Disabled_Children || 0}</Badge>
+                      </TableCell>
                       <TableCell className="text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -313,6 +315,18 @@ export function ParentDetail({ pNo, onNavigate, onBack }: ParentDetailProps) {
                 <label className="text-sm font-medium text-slate-500">CNIC</label>
                 <p className="text-lg font-mono">{parent.Parent_CNIC}</p>
               </div>
+              <div className="md:col-span-2">
+                <label className="text-sm font-medium text-slate-500">Address</label>
+                <p className="text-lg">{parent.Address || 'N/A'}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-slate-500">Email</label>
+                <p className="text-lg">{parent.Email || 'N/A'}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-slate-500">Disabled Children</label>
+                <p className="text-lg">{parent.No_of_Disabled_Children || 0}</p>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -387,16 +401,36 @@ export function ParentDetail({ pNo, onNavigate, onBack }: ParentDetailProps) {
               {parent.banking ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
+                    <label className="text-sm font-medium text-slate-500">Bank Name</label>
+                    <p className="text-lg">{parent.banking.Bank_Name || (parent.banking.Bank_Name_Branch && parent.banking.Bank_Name_Branch.split(',')[0]) || 'N/A'}</p>
+                  </div>
+                  <div>
                     <label className="text-sm font-medium text-slate-500">Account Title</label>
                     <p className="text-lg">{parent.banking.Account_Title}</p>
                   </div>
                   <div>
+                    <label className="text-sm font-medium text-slate-500">Account Number</label>
+                    <p className="text-lg font-mono">{parent.banking.Account_Number || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-slate-500">Branch Code</label>
+                    <p className="text-lg">{parent.banking.Branch_Code || 'N/A'}</p>
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="text-sm font-medium text-slate-500">Branch Address</label>
+                    <p className="text-lg">{parent.banking.Branch_Address || (parent.banking.Bank_Name_Branch && parent.banking.Bank_Name_Branch.split(',')[1]) || 'N/A'}</p>
+                  </div>
+                  <div className="md:col-span-2">
                     <label className="text-sm font-medium text-slate-500">IBAN</label>
                     <p className="text-lg font-mono">{parent.banking.IBAN}</p>
                   </div>
-                  <div className="md:col-span-2">
-                    <label className="text-sm font-medium text-slate-500">Bank & Branch</label>
-                    <p className="text-lg">{parent.banking.Bank_Name_Branch}</p>
+                  <div>
+                    <label className="text-sm font-medium text-slate-500">Routing Number</label>
+                    <p className="text-lg">{parent.banking.Routing_Number || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-slate-500">CNIC of Account Holder</label>
+                    <p className="text-lg font-mono">{parent.banking.CNIC_of_Account_Holder || 'N/A'}</p>
                   </div>
                 </div>
               ) : (
