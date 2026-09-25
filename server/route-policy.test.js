@@ -15,6 +15,7 @@ test('approval and security endpoints require high-risk permissions', () => {
   assert.equal(permissionForRequest({ path: '/admin/approve-request', method: 'POST' }), 'applications.approve');
   assert.equal(permissionForRequest({ path: '/auth/reset-authority-password', method: 'POST' }), 'authority_accounts.reset_password');
   assert.equal(permissionForRequest({ path: '/admin/reset-parent-password', method: 'POST' }), 'accounts.issue_one_time_password');
+  assert.equal(permissionForRequest({ path: '/admin/parents/PN-1/restore-access', method: 'POST' }), 'applications.block');
 });
 
 test('access-control routes separate reading, assignment, and credential powers', () => {
@@ -37,6 +38,16 @@ test('configuration routes separate operational reads from management and rate p
   assert.equal(permissionForRequest({ path: '/config/parent-field-policies', method: 'GET' }), 'settings.read');
   assert.equal(permissionForRequest({ path: '/config/parent-field-policies/rankRate', method: 'PATCH' }), 'settings.manage');
   assert.equal(permissionForRequest({ path: '/imports/provisional-record', method: 'POST' }), 'imports.execute');
+  assert.equal(permissionForRequest({ path: '/config/document-types', method: 'POST' }), 'settings.manage');
+  assert.equal(permissionForRequest({ path: '/config/document-types/2/export', method: 'GET' }), 'settings.read');
+  assert.equal(permissionForRequest({ path: '/config/document-types/import', method: 'POST' }), 'settings.manage');
+  assert.equal(permissionForRequest({ path: '/config/form-templates/3/publish', method: 'POST' }), 'forms.manage');
+  assert.equal(permissionForRequest({ path: '/config/form-templates/3/export', method: 'GET' }), 'forms.read');
+  assert.equal(permissionForRequest({ path: '/config/form-templates/import', method: 'POST' }), 'forms.manage');
+  assert.equal(permissionForRequest({ path: '/document-files/7/review', method: 'POST' }), 'documents.verify');
+  assert.equal(permissionForRequest({ path: '/form-submissions', method: 'POST' }), 'forms.submit');
+  assert.equal(permissionForRequest({ path: '/form-submissions/4/review', method: 'POST' }), 'forms.review');
+  assert.equal(permissionForRequest({ path: '/message-threads/4/messages', method: 'POST' }), 'messages.send');
 });
 
 test('unknown routes fail closed', () => {

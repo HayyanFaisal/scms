@@ -18,6 +18,7 @@ export interface ParentBeneficiary {
   Address?: string;
   Email?: string;
   Contact_No?: string;
+  Status?: string;
   Record_State?: 'complete' | 'incomplete' | 'conflict_review';
   Missing_Fields?: string[] | string;
   Is_Provisional?: boolean;

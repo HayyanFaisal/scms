@@ -260,9 +260,25 @@ Phase 1 account/profile lifecycle is installed by migrations `008_profile_lifecy
 - Parent records expose `complete`, `incomplete`, or `conflict_review` state and list missing configured fields.
 - Open **Configuration → Parent Fields** to mark fields as direct-edit, approval-required, or locked, and to control which active fields are required.
 - Controlled parent edits appear in **Requests** with current/proposed values. Authorized staff can approve, request changes, reject, or block online access; non-approval decisions require a parent-facing reason.
-- A returned parent can sign in, correct the profile, and resubmit. A blocked parent cannot use the portal until an authorized future unblock workflow is added.
+- A returned parent can sign in, correct the profile, and resubmit. A blocked parent cannot use the portal. A Director or role with `applications.block` can restore access from the parent record after entering a mandatory audit reason; restoration revokes older sessions and returns incomplete records to changes-required.
 
 The staged Excel/CSV importer, mapping wizard, and conflict-resolution UI are Phase 3. The Phase 1 provisional-record endpoint is the identity-safe foundation those screens will use.
+
+### Phase 2 documents and digital forms
+
+Migration `010_documents_and_forms.js` installs the first Phase 2 workflow:
+
+- Open **Configuration → Documents & Forms** to create or edit draft document requirements and bounded structured forms, then publish immutable effective-dated versions.
+- Draft definitions can be exported as versioned SCMS JSON packages and imported into another installation. Import accepts only an SCMS `.json` configuration package up to 2 MB—not Excel, Word, PDF, or arbitrary form JSON. Imports are fully validated, reject duplicate stable codes, contain no operational records/files, and always remain drafts until a separately authorized publication. The import dialog includes a downloadable example.
+- Requirements support parent, child, application, banking, and gadget records. File size/count, allowed MIME types, expiry, replacement behavior, guidance, required status, and display order are stored in the published definition.
+- New evidence is stored under `SCMS_DOCUMENT_STORAGE_DIR` (or the ignored `.scms-data/documents` development directory), outside any public static path. Storage keys are random; the server checks file signatures, enforces the published policy, computes SHA-256, and records the exact owner and definition version.
+- Replacement evidence creates a new version and marks the former current version as superseded. It does not overwrite history.
+- A new child remains a resumable `draft` while step 2 is incomplete and enters the staff queue only when the parent presses **Submit for review**. Parent uploads are committed immediately after each upload succeeds; refresh does not discard them. Unsubmitted digital-form answers remain browser-only until **Submit form** is pressed. The parent can reopen any child through **My Children → View Details** to resume configured requirements.
+- Parents receive a dynamic child-specific Documents & Digital Forms workspace. The former fixed document upload endpoint returns `410 Gone`.
+- Open **Documents & Forms** in the staff sidebar to review uploads and structured submissions within the account's document data scope. Verification, changes-required, and rejection decisions retain reviewer, time, and reason.
+- Parent/staff message threads are record-scoped. The staff review workspace can start conversations, reply, and add visibly distinguished internal notes; internal notes never appear in the parent portal.
+
+The form designer supports multiple sections, common safe field types, choice options, instructions, help text, and text-length validation. Lookup/repeating-group controls, school-owned records, message attachments, retention jobs, malware-scanner adapters, and legacy-file migration remain Phase 2 follow-up work.
 
 Open separate terminals to run both portals simultaneously:
 
@@ -301,7 +317,7 @@ npm run dev
 - **Beneficiary Registry**: Detailed tracking of naval parents (Serving, Retired, Expired), service rankings, almirah & file records, and bank accounts.
 - **Dependent Children**: Child records, assigned disability categories (Category A: Severe, Category B: Moderate, Category C: Mild), medical condition details, and schooling.
 - **Grants & Gadgets Management**: Manage monthly allowances, calculate total CFY disbursals, record assistive device acquisitions with automated 18% tax calculation.
-- **Requests & Approvals Inbox**: Review real-time registration and child addition submissions received from the Parent Portal. Inspect uploaded medical performas and certificates directly in an image modal before approving or rejecting with remarks.
+- **Requests & Approvals Inbox**: Review real-time registration and child addition submissions received from the Parent Portal. Child requests show the currently configured document requirements, saved file versions, and structured-form submissions rather than retired fixed document names.
 - **Reports & Exporting**: Generate comprehensive PDF and tabular exports for board presentations.
 
 ### 2. Authority Portal ([http://localhost:5173/authority.html](http://localhost:5173/authority.html))
@@ -310,12 +326,8 @@ npm run dev
 
 ### 3. Parent Portal ([http://localhost:5174](http://localhost:5174))
 - **Self-Service Registration**: Parents sign up using their Official P.No / O.No, CNIC, rank, unit, and service status.
-- **Add Special Child (2-Step Wizard)**:
-  1. Input child bio, age, B-Form/CNIC, disability details, and category.
-  2. Upload 4 verification documents:
-     - Assessment Performa (by Specialist Doctor)
-     - Application Form (Father + Child + Bank details + PN Authorization)
-     - Disability Certificate (NCRDP / PCRDP)
-     - Identity Proof (Child B-Form / CNIC)
+- **Add Child (2-Step Wizard)**:
+  1. Enter child identity, school, and the parent-selected category.
+  2. Complete whatever documents and digital forms the Director has currently configured for child records. Uploads save immediately and can be resumed later from **My Children**.
 - **Banking Management**: Add, update, and manage bank account, branch, and IBAN details for direct grant transfers.
 - **Real-Time Status**: Monitor approval status (`Pending`, `Approved`, `Rejected`) synced with the central Admin system.

@@ -10,7 +10,7 @@
 
 This is the instruction booklet for the SCMS web application. It explains the intended application behavior in ordinary language and then explains the technical design developers should use to deliver it.
 
-The repository is currently a prototype undergoing its security and configuration migration. Screens and APIs for basic records exist. Migration-backed staff authentication/RBAC, Director-facing account/role management, initial SQL-enforced authority scopes, the Phase 1 configuration registry, provisional identity foundation, parent field policies, and account-review lifecycle are implemented. Complete legacy-route scoping, the full staged importer/conflict workspace, configurable documents/forms, durable notifications, and operational packaging still require implementation. Items marked **Current** exist in some form now. Items marked **Target** describe the required production behavior.
+The repository is currently a prototype undergoing its security and configuration migration. Screens and APIs for basic records exist. Migration-backed staff authentication/RBAC, Director-facing account/role management, initial SQL-enforced authority scopes, the Phase 1 configuration registry, provisional identity foundation, parent field policies/account review, and the Phase 2 document/form foundation are implemented. Complete legacy-route scoping, the full staged importer/conflict workspace, remaining document operations, durable notifications, and operational packaging still require implementation. Items marked **Current** exist in some form now. Items marked **Target** describe the required production behavior.
 
 ## 2. Product overview
 
@@ -341,6 +341,16 @@ Templates should support JSON export/import for exact transfer between installat
 - **Messages**: parent/staff correspondence.
 - **Audit**: authorized event history.
 
+### Current Phase 2 implementation
+
+Migration `010_documents_and_forms.js` provides document types and immutable published versions, effective-dated requirements, record-owned versioned files, document review history, form templates and immutable schema versions, versioned form submissions, and record-scoped message threads. The active implementation is in `server/document-management.js` and is shared by the staff and parent workflows.
+
+Files are written outside the web root using a random 256-bit storage key. Browser MIME declarations are not trusted: supported PDF/image signatures are detected from the content, the published MIME/size/count/expiry policy is enforced, and SHA-256 is stored. Downloads use authenticated endpoints that re-check ownership or staff authority scope. Replacement creates a new row and marks the former current file as superseded.
+
+The staff Configuration page provides bounded document/form draft editing and immutable publication. Its guided form designer supports multiple sections, common safe fields, individually edited choice options, help text, and text-length validation. Versioned `.json` configuration packages (maximum 2 MB) support exact offline transfer between installations: imports are validated, reject duplicate stable codes, and are always inactive drafts. The parent child-registration workflow loads current requirements dynamically, renders published structured forms, uploads exact child-owned evidence, and exposes record-scoped message threads. A new child is stored with `draft` status during step 2 and changes to `pending` only through the final authenticated submission endpoint after required uploads are present. Successful uploads are committed immediately to the versioned store; unsubmitted form input is not persisted. Parents can reopen a child from My Children to resume work. A submitted or verified form cannot be accidentally resubmitted unless staff first marks it changes-required. The staff request and evidence workspaces both read current dynamic requirements rather than legacy fixed document labels. The staff Documents & Forms queue verifies or returns the exact version, displays responses with configured labels, and lets authorized staff start conversations, send parent-visible replies, or add visually marked internal notes. Internal notes are filtered from parent responses.
+
+Current follow-up work within Phase 2: lookup/repeating-group designer controls, school-owned record support, message attachments, retention jobs, malware-scanner adapter hooks, and migration of legacy `Parent_Document_Files` content into the versioned store.
+
 ## 9. Excel/CSV import manual
 
 ### Preparing an import
@@ -482,7 +492,7 @@ Migration `007_category_decisions.js` separates `Parent_Selected_Category` from 
 
 Migration `008_profile_lifecycle.js` adds normalized PN/CNIC identifiers, explicit identity conflicts, provisional/incomplete record markers, configurable parent-field policies, and versioned parent change requests. The provisional-record API can match or create a parent from PN and/or CNIC, attach a child, and records missing required fields without inventing placeholder demographics. The full spreadsheet staging, mapping, and conflict-resolution screens remain Phase 3 work.
 
-Migration `009_review_states.js` expands review states and stores parent-facing responses. Parent profile fields are configured as `direct`, `approval`, or `locked`; required fields contribute to live completeness. Controlled edits enter staff review, while direct edits save transactionally. Staff can approve, request changes, reject further online processing, or block online access when granted the dedicated permission. Resubmission and blocking behavior have API-level live smoke coverage in addition to unit tests.
+Migration `009_review_states.js` expands review states and stores parent-facing responses. Parent profile fields are configured as `direct`, `approval`, or `locked`; required fields contribute to live completeness. Controlled edits enter staff review, while direct edits save transactionally. Staff can approve, request changes, reject further online processing, or block online access when granted the dedicated permission. A Director or delegated role can restore blocked/rejected access with a mandatory audited reason; both blocking and restoring revoke existing parent sessions. Resubmission, blocking, and restoration behavior have API-level live smoke coverage in addition to unit tests.
 
 Phase 1 is complete at the application-foundation level. A CNIC-only provisional record still needs an authorized staff member or the future Phase 3 conflict workspace to attach a verified PN/O number before PN-based login. Stable surrogate parent IDs remain a target schema migration because legacy foreign keys still use PN/O number.
 

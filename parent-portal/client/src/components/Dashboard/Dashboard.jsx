@@ -7,6 +7,7 @@ import Banking from './Banking'
 import Profile from './Profile'
 import StatusBadge from './StatusBadge'
 import AccountManagement from './AccountManagement'
+import ChildDetailsPage from './ChildDetailsPage'
 import pakistanNavyLogo from '../../images/pakistan-navy-logo.png'
 
 const Dashboard = () => {
@@ -154,6 +155,7 @@ const Dashboard = () => {
           <Routes>
             <Route path="/" element={<Overview />} />
             <Route path="/children" element={<ChildrenList />} />
+            <Route path="/children/:childId" element={<ChildDetailsPage />} />
             <Route path="/add-child" element={<AddChildForm />} />
             <Route path="/banking" element={<Banking />} />
             <Route path="/profile" element={<Profile />} />

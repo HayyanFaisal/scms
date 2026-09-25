@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
@@ -40,7 +41,8 @@ import {
   Shield,
   ArrowRight,
   KeyRound,
-  Copy
+  Copy,
+  ShieldCheck
 } from 'lucide-react';
 import { useParents, useParentWithDetails, useScannedDocuments } from '@/hooks/useDatabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -245,6 +247,10 @@ export function ParentDetail({ pNo, onNavigate, onBack }: ParentDetailProps) {
   const [resetBusy, setResetBusy] = useState(false);
   const [resetError, setResetError] = useState('');
   const [issuedCredential, setIssuedCredential] = useState<{ loginId: string; oneTimePassword: string; expiresAt: string } | null>(null);
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [restoreReason, setRestoreReason] = useState('');
+  const [restoreBusy, setRestoreBusy] = useState(false);
+  const [restoreError, setRestoreError] = useState('');
 
   const issueOneTimePassword = async () => {
     setResetBusy(true);
@@ -260,6 +266,28 @@ export function ParentDetail({ pNo, onNavigate, onBack }: ParentDetailProps) {
       setResetError(error instanceof Error ? error.message : 'Unable to issue a one-time password.');
     } finally {
       setResetBusy(false);
+    }
+  };
+
+  const restorePortalAccess = async () => {
+    if (restoreReason.trim().length < 5) {
+      setRestoreError('Enter a reason of at least 5 characters.');
+      return;
+    }
+    setRestoreBusy(true);
+    setRestoreError('');
+    try {
+      const response = await apiFetch(`/admin/parents/${encodeURIComponent(pNo)}/restore-access`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: restoreReason.trim() })
+      });
+      if (!response.ok) throw new Error(await readApiError(response, 'Unable to restore portal access.'));
+      setRestoreOpen(false);
+      window.location.reload();
+    } catch (error) {
+      setRestoreError(error instanceof Error ? error.message : 'Unable to restore portal access.');
+    } finally {
+      setRestoreBusy(false);
     }
   };
 
@@ -283,6 +311,7 @@ export function ParentDetail({ pNo, onNavigate, onBack }: ParentDetailProps) {
           <h1 className="text-2xl font-bold text-slate-900">{parent.Parent_Name}</h1>
           <p className="text-slate-500">{parent.P_No_O_No} • {parent.Rank_Rate}</p>
           {parent.Record_State && parent.Record_State !== 'complete' && <Badge variant="outline" className="mt-2 border-amber-300 bg-amber-50 text-amber-800">{parent.Record_State.replace('_', ' ')}</Badge>}
+          {parent.Status && <Badge variant="outline" className="ml-2 mt-2">Portal: {parent.Status.replace('_', ' ')}</Badge>}
         </div>
         {canUpdate('parents') && (
           <Button onClick={() => onNavigate('parent-edit', { pNo })}>
@@ -294,6 +323,12 @@ export function ParentDetail({ pNo, onNavigate, onBack }: ParentDetailProps) {
           <Button variant="outline" onClick={() => { setIssuedCredential(null); setResetError(''); setResetOpen(true); }}>
             <KeyRound className="w-4 h-4 mr-2" />
             Issue one-time password
+          </Button>
+        )}
+        {hasPermission('applications.block') && ['blocked', 'rejected'].includes(parent.Status || '') && (
+          <Button variant="outline" onClick={() => { setRestoreReason(''); setRestoreError(''); setRestoreOpen(true); }}>
+            <ShieldCheck className="w-4 h-4 mr-2" />
+            Restore portal access
           </Button>
         )}
       </div>
@@ -571,6 +606,25 @@ export function ParentDetail({ pNo, onNavigate, onBack }: ParentDetailProps) {
           <DialogFooter>
             <Button variant="outline" onClick={() => setResetOpen(false)}>{issuedCredential ? 'Done' : 'Cancel'}</Button>
             {!issuedCredential && <Button disabled={resetBusy} onClick={() => void issueOneTimePassword()}><KeyRound className="mr-2 h-4 w-4" />{resetBusy ? 'Issuing…' : 'Issue password'}</Button>}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={restoreOpen} onOpenChange={setRestoreOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Restore parent portal access</DialogTitle>
+            <DialogDescription>
+              Restore this restricted account after the office has resolved the issue. Existing parent sessions stay revoked, so the parent must sign in again.
+            </DialogDescription>
+          </DialogHeader>
+          {restoreError && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700">{restoreError}</p>}
+          <Textarea value={restoreReason} onChange={event => setRestoreReason(event.target.value)} placeholder="Required audit reason" />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRestoreOpen(false)}>Cancel</Button>
+            <Button disabled={restoreBusy || restoreReason.trim().length < 5} onClick={() => void restorePortalAccess()}>
+              <ShieldCheck className="mr-2 h-4 w-4" />{restoreBusy ? 'Restoring…' : 'Restore access'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

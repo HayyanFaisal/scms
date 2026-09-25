@@ -6,4 +6,5 @@ dist/
 !.env.example
 server/uploads/
 parent-portal/client/dist/
+.scms-data/
 *.log

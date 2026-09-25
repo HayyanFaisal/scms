@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import './RequestsTab.css'
-import ImagePopup from '../ImagePopup'
 import { apiFetch } from '../../services/http'
 import { useAuth } from '../../hooks/useAuth'
 
@@ -12,8 +11,7 @@ const RequestsTab = () => {
     const [selectedRequest, setSelectedRequest] = useState(null)
     const [adminNotes, setAdminNotes] = useState('')
     const [processing, setProcessing] = useState(false)
-    const [popupImage, setPopupImage] = useState(null)
-    const [childDocuments, setChildDocuments] = useState({})
+    const [childWorkspaces, setChildWorkspaces] = useState({})
     const [parentBanking, setParentBanking] = useState(null)
     const [categories, setCategories] = useState([])
     const [approvedCategory, setApprovedCategory] = useState('')
@@ -126,17 +124,19 @@ const RequestsTab = () => {
 
     const formatDate = (dateStr) => new Date(dateStr).toLocaleString()
 
-    // Fetch documents when viewing child request
-    const fetchChildDocuments = async (childId) => {
+    const requestPayload = request => typeof request?.payload === 'string' ? JSON.parse(request.payload) : request?.payload || {}
+
+    // Load the same dynamic, versioned workspace used by the parent portal.
+    const fetchChildWorkspace = async (childId) => {
         try {
-            const res = await apiFetch(`/admin/child-documents?childId=${childId}`)
+            const query = new URLSearchParams({ ownerType: 'child', ownerId: String(childId) })
+            const res = await apiFetch(`/document-workspace?${query.toString()}`)
             const data = await res.json()
-            // Ensure we always store an array
-            setChildDocuments(prev => ({ ...prev, [childId]: Array.isArray(data) ? data : [] }))
+            if (!res.ok) throw new Error(data.error?.message || 'Unable to load document workspace')
+            setChildWorkspaces(prev => ({ ...prev, [childId]: data }))
         } catch (err) {
-            console.error('Failed to fetch documents:', err)
-            // Store empty array on error
-            setChildDocuments(prev => ({ ...prev, [childId]: [] }))
+            console.error('Failed to fetch child workspace:', err)
+            setChildWorkspaces(prev => ({ ...prev, [childId]: { error: 'Unable to load configured documents and forms.' } }))
         }
     }
 
@@ -187,10 +187,11 @@ const RequestsTab = () => {
                             key={`${req.request_type}-${req.id || req.request_id}`} 
                             className={`request-item ${req.status} ${filter}`}
                             onClick={() => {
-                                setSelectedRequest(req)
-                                const payload = typeof req.payload === 'string' ? JSON.parse(req.payload) : req.payload
-                                setApprovedCategory(req.request_type === 'child_addition' ? (payload?.approvedCategory || payload?.disabilityCategory || '') : '')
-                                fetchParentBanking(req.p_no_o_no)
+                                 setSelectedRequest(req)
+                                 const payload = requestPayload(req)
+                                 setApprovedCategory(req.request_type === 'child_addition' ? (payload?.approvedCategory || payload?.disabilityCategory || '') : '')
+                                 fetchParentBanking(req.p_no_o_no)
+                                 if (req.request_type === 'child_addition' && payload.childId) fetchChildWorkspace(payload.childId)
                             }}
                         >
                             <div className="request-icon">{getRequestIcon(req.request_type)}</div>
@@ -296,11 +297,6 @@ const RequestsTab = () => {
                                           ? JSON.parse(selectedRequest.payload) 
                                           : selectedRequest.payload
                                       
-                                      // Fetch documents when child addition is selected
-                                      if (payload.childId && !childDocuments[payload.childId]) {
-                                          fetchChildDocuments(payload.childId)
-                                      }
-                                      
                                       return (
                                             <div className="detail-grid">
                                                 <div className="detail-item"><label>Child Name</label><span>{payload.childName}</span></div>
@@ -317,47 +313,23 @@ const RequestsTab = () => {
                                 <div className="documents-section">
                                     <h4>📎 Uploaded Documents</h4>
                                     {(() => {
-                                        const docs = childDocuments[selectedRequest.payload?.childId] || []
-                                        const docMap = {}
-                                        docs.forEach(d => docMap[d.document_type] = d)
-                                        
-                                        const docTypes = [
-                                            { key: 'assessment_performa', label: 'Assessment Performa' },
-                                            { key: 'application_form', label: 'Application Form' },
-                                            { key: 'disability_certificate', label: 'Disability Certificate' },
-                                            { key: 'identity_proof', label: 'Identity Proof' }
-                                        ]
-
-                                        return (
-                                            <div className="admin-docs-grid">
-                                                {docTypes.map(dt => {
-                                                    const doc = docMap[dt.key]
-                                                    return (
-                                                        <div key={dt.key} className={`admin-doc-item ${doc ? 'has-doc' : 'missing'}`}>
-                                                            <span className="doc-label">{dt.label}</span>
-                                                            {doc ? (
-                                                                <>
-                                                                    <img 
-                                                                        src={`/api/admin/document-view?path=${encodeURIComponent(doc.file_path)}`}
-                                                                        alt={dt.label}
-                                                                        className="doc-thumb"
-                                                                        onClick={() => setPopupImage(`/api/admin/document-view?path=${encodeURIComponent(doc.file_path)}`)}
-                                                                    />
-                                                                    <button 
-                                                                        className="btn-view"
-                                                                        onClick={() => window.open(`/api/admin/document-view?path=${encodeURIComponent(doc.file_path)}`, '_blank')}
-                                                                    >
-                                                                        🔍 Open
-                                                                    </button>
-                                                                </>
-                                                            ) : (
-                                                                <span className="no-doc">Not uploaded</span>
-                                                            )}
-                                                        </div>
-                                                    )
-                                                })}
-                                            </div>
-                                        )
+                                        const payload = requestPayload(selectedRequest)
+                                        const workspace = childWorkspaces[payload.childId]
+                                        if (!workspace) return <div className="loading">Loading configured requirements...</div>
+                                        if (workspace.error) return <div className="empty-state">{workspace.error}</div>
+                                        const currentFiles = new Map()
+                                        for (const file of workspace.files || []) if (file.status !== 'superseded' && !currentFiles.has(file.document_type_id)) currentFiles.set(file.document_type_id, file)
+                                        if ((workspace.requirements || []).length === 0 && (workspace.forms || []).length === 0) return <div className="empty-state">No document or digital-form requirements are configured for child records.</div>
+                                        return <div className="admin-docs-grid">
+                                            {(workspace.requirements || []).map(requirement => {
+                                                const file = currentFiles.get(requirement.document_type_id)
+                                                return <div key={requirement.requirement_id} className={`admin-doc-item ${file ? 'has-doc' : 'missing'}`}>
+                                                    <span className="doc-label">{requirement.name}{requirement.is_required ? ' · Required' : ''}</span>
+                                                    {file ? <><span className="no-doc">{file.original_file_name}</span><span className="no-doc">Version {file.version_number} · {file.status.replace('_', ' ')}</span><button className="btn-view" onClick={() => window.open(`/api/document-files/${file.id}/content`, '_blank', 'noopener,noreferrer')}>Open saved file</button></> : <span className="no-doc">Not uploaded</span>}
+                                                </div>
+                                            })}
+                                            {(workspace.forms || []).map(form => <div key={form.template_version_id} className={`admin-doc-item ${form.submission_id ? 'has-doc' : 'missing'}`}><span className="doc-label">Digital form · {form.name}</span><span className="no-doc">{form.submission_status ? form.submission_status.replace('_', ' ') : 'Not submitted'}</span>{form.submission_id && <pre className="no-doc">{JSON.stringify(form.response_json, null, 2)}</pre>}</div>)}
+                                        </div>
                                     })()}
                                 </div>
                                 </div>
@@ -409,7 +381,6 @@ const RequestsTab = () => {
                 </div>
             )}
             
-            {popupImage && <ImagePopup src={popupImage} onClose={() => setPopupImage(null)} />}
         </div>
     )
 }

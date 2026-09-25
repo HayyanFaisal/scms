@@ -16,6 +16,7 @@ import { createDataScopeMiddleware, loadDataScope, scopeAllowsAuthority, scopePr
 import { hashPassword, verifyPassword } from './security.js';
 import { assertReferenceValue, registerConfigurationRoutes } from './configuration.js';
 import { PARENT_FIELD_COLUMNS, matchParentByIdentifiers, normalizeIdentifier, refreshChildCompleteness, refreshParentCompleteness, syncParentIdentifiers } from './profile-lifecycle.js';
+import { registerDocumentManagementRoutes } from './document-management.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -328,6 +329,7 @@ app.use('/api', (req, res, next) => {
 
 registerAccessControlRoutes(app, pool);
 registerConfigurationRoutes(app, pool);
+registerDocumentManagementRoutes(app, pool, transaction);
 
 app.post('/api/imports/provisional-record', async (req, res, next) => {
   try {
@@ -1230,9 +1232,10 @@ app.post('/api/admin/approve-request', async (req, res) => {
                         await connection.query(
                             `UPDATE Parent_Beneficiary SET Status = ?,
                              Block_Reason = CASE WHEN ? = 'blocked' THEN ? ELSE Block_Reason END,
-                             Blocked_At = CASE WHEN ? = 'blocked' THEN CURRENT_TIMESTAMP(3) ELSE Blocked_At END
+                             Blocked_At = CASE WHEN ? = 'blocked' THEN CURRENT_TIMESTAMP(3) ELSE Blocked_At END,
+                             Credential_Version = CASE WHEN ? = 'blocked' THEN Credential_Version + 1 ELSE Credential_Version END
                              WHERE P_No_O_No = ?`,
-                            [parentStatus, parentStatus, String(notes).trim(), parentStatus, changeRequest.parent_p_no_o_no]
+                            [parentStatus, parentStatus, String(notes).trim(), parentStatus, parentStatus, changeRequest.parent_p_no_o_no]
                         );
                     }
                 }
@@ -1411,6 +1414,55 @@ app.post('/api/admin/reset-parent-password', async (req, res, next) => {
             res.status(404).json({ error: { code: 'PARENT_NOT_FOUND', message: 'Parent account was not found.' } });
             return;
         }
+        next(error);
+    }
+});
+
+app.post('/api/admin/parents/:pNo/restore-access', async (req, res, next) => {
+    const pNo = String(req.params.pNo || '').trim();
+    const reason = String(req.body?.reason || '').trim();
+    if (!pNo || reason.length < 5) {
+        res.status(400).json({ error: { code: 'RESTORE_REASON_REQUIRED', message: 'A restore reason of at least 5 characters is required.' } });
+        return;
+    }
+
+    try {
+        const restoredStatus = await transaction(async connection => {
+            const [[parent]] = await connection.query(
+                'SELECT Status, Record_State FROM Parent_Beneficiary WHERE P_No_O_No = ? FOR UPDATE',
+                [pNo]
+            );
+            if (!parent) {
+                const error = new Error('Parent account not found.');
+                error.status = 404;
+                error.publicCode = 'PARENT_NOT_FOUND';
+                throw error;
+            }
+            if (!['blocked', 'rejected'].includes(parent.Status)) {
+                const error = new Error('Only blocked or rejected parent access can be restored.');
+                error.status = 409;
+                error.publicCode = 'ACCOUNT_NOT_RESTRICTED';
+                throw error;
+            }
+            const nextStatus = parent.Record_State === 'complete' ? 'approved' : 'changes_required';
+            await connection.query(
+                `UPDATE Parent_Beneficiary
+                 SET Status = ?, Block_Reason = NULL, Blocked_At = NULL,
+                     Credential_Version = Credential_Version + 1
+                 WHERE P_No_O_No = ?`,
+                [nextStatus, pNo]
+            );
+            await connection.query(
+                `INSERT INTO scms_audit_events
+                  (actor_user_id, action, entity_type, entity_id, reason, correlation_id, details)
+                 VALUES (?, 'parent.portal_access_restored', 'parent', ?, ?, UUID(),
+                         JSON_OBJECT('previousStatus', ?, 'restoredStatus', ?))`,
+                [req.staff.id, pNo, reason, parent.Status, nextStatus]
+            );
+            return nextStatus;
+        });
+        res.json({ message: 'Parent portal access restored. Existing sessions remain revoked.', status: restoredStatus });
+    } catch (error) {
         next(error);
     }
 });

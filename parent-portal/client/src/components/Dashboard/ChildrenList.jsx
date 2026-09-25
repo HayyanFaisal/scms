@@ -57,7 +57,8 @@ const ChildrenList = () => {
   const stats = {
     total: children.length,
     approved: children.filter(c => c.status === 'approved').length,
-    pending: children.filter(c => c.status === 'pending').length
+    pending: children.filter(c => c.status === 'pending').length,
+    draft: children.filter(c => c.status === 'draft').length
   }
 
   const getCategoryColor = (cat) => {
@@ -71,10 +72,12 @@ const ChildrenList = () => {
 
   const getStatusStyle = (status) => {
     switch(status?.toLowerCase()) {
-      case 'approved': return { bg: 'bg-emerald-500', text: 'text-emerald-700 dark:text-emerald-400', label: 'Approved' }
-      case 'pending': return { bg: 'bg-amber-500', text: 'text-amber-700 dark:text-amber-400', label: 'Pending Review' }
-      case 'rejected': return { bg: 'bg-rose-500', text: 'text-rose-700 dark:text-rose-400', label: 'Rejected' }
-      default: return { bg: 'bg-slate-500', text: 'text-slate-600 dark:text-slate-400', label: 'Unknown' }
+      case 'approved': return { dot: 'bg-emerald-500', badge: 'border-emerald-300 bg-emerald-100 text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-100', label: 'Approved' }
+      case 'pending': return { dot: 'bg-amber-500', badge: 'border-amber-300 bg-amber-100 text-amber-950 dark:border-amber-600 dark:bg-amber-950/70 dark:text-amber-100', label: 'Pending Review' }
+      case 'draft': return { dot: 'bg-blue-500', badge: 'border-blue-300 bg-blue-100 text-blue-950 dark:border-blue-700 dark:bg-blue-950/70 dark:text-blue-100', label: 'Incomplete Draft' }
+      case 'changes_required': return { dot: 'bg-orange-500', badge: 'border-orange-300 bg-orange-100 text-orange-950 dark:border-orange-700 dark:bg-orange-950/70 dark:text-orange-100', label: 'Changes Required' }
+      case 'rejected': return { dot: 'bg-rose-500', badge: 'border-rose-300 bg-rose-100 text-rose-950 dark:border-rose-700 dark:bg-rose-950/70 dark:text-rose-100', label: 'Rejected' }
+      default: return { dot: 'bg-slate-500', badge: 'border-slate-300 bg-slate-100 text-slate-900 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100', label: 'Unknown' }
     }
   }
 
@@ -96,7 +99,7 @@ const ChildrenList = () => {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 border border-slate-200/60 dark:border-slate-700/50 shadow-sm">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
@@ -107,6 +110,9 @@ const ChildrenList = () => {
               <p className="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Children</p>
             </div>
           </div>
+        </div>
+        <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 border border-slate-200/60 dark:border-slate-700/50 shadow-sm">
+          <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-900/30"><span className="material-symbols-outlined text-blue-600 dark:text-blue-400">edit_note</span></div><div><p className="text-2xl font-bold text-slate-800 dark:text-white">{stats.draft}</p><p className="text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">Drafts</p></div></div>
         </div>
         <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 border border-slate-200/60 dark:border-slate-700/50 shadow-sm">
           <div className="flex items-center gap-3">
@@ -135,7 +141,7 @@ const ChildrenList = () => {
       {/* Filter Tabs */}
       {children.length > 0 && (
         <div className="flex gap-2">
-          {['all', 'approved', 'pending'].map((f) => (
+          {['all', 'draft', 'pending', 'approved'].map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -191,14 +197,13 @@ const ChildrenList = () => {
                         <p className="text-sm text-slate-500 dark:text-slate-400">Age: {child.age} years</p>
                       </div>
                     </div>
-                    <div className={`w-3 h-3 rounded-full ${statusStyle.bg} shadow-lg ring-2 ring-white dark:ring-slate-800`} title={statusStyle.label}></div>
+                    <div className={`w-3 h-3 rounded-full ${statusStyle.dot} shadow-lg ring-2 ring-white dark:ring-slate-800`} title={statusStyle.label}></div>
                   </div>
                   
                   {/* Status Badge */}
                   <div className="flex items-center gap-2 mb-4">
-                    <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${statusStyle.text} bg-opacity-10`}
-                      style={{ backgroundColor: 'currentColor', opacity: 0.1 }}>
-                      <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: 'currentColor' }}></span>
+                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold ${statusStyle.badge}`}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${statusStyle.dot}`}></span>
                       {statusStyle.label}
                     </span>
                     {child.disability_category && (
@@ -241,10 +246,10 @@ const ChildrenList = () => {
                 
                 {/* Card Footer */}
                 <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50">
-                  <button className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors group-hover:bg-blue-50 dark:group-hover:bg-blue-900/20 rounded-xl">
+                  <Link to={`/dashboard/children/${child.child_id}`} className="w-full flex items-center justify-center gap-2 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-200 hover:text-blue-700 dark:hover:text-blue-300 transition-colors group-hover:bg-blue-50 dark:group-hover:bg-blue-900/20 rounded-xl">
                     <span className="material-symbols-outlined text-lg">visibility</span>
                     View Details
-                  </button>
+                  </Link>
                 </div>
               </div>
             )

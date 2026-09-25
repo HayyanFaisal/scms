@@ -7,6 +7,8 @@ export function permissionForRequest({ path, method }) {
   if (pathName.startsWith('/config/master-data')) return read ? 'organizations.read' : 'organizations.manage';
   if (pathName.startsWith('/config/rates')) return read ? 'rates.read' : 'rates.manage';
   if (pathName.startsWith('/config/parent-field-policies')) return read ? 'settings.read' : 'settings.manage';
+  if (pathName.startsWith('/config/document-types')) return read ? 'settings.read' : 'settings.manage';
+  if (pathName.startsWith('/config/form-templates')) return read ? 'forms.read' : 'forms.manage';
   if (pathName === '/imports/provisional-record') return 'imports.execute';
 
   if (pathName === '/access-control/catalog') return 'roles.read';
@@ -17,6 +19,14 @@ export function permissionForRequest({ path, method }) {
   if (pathName.startsWith('/access-control/scopes')) return 'assignments.manage';
 
   if (pathName === '/bootstrap') return 'dashboard.view';
+  if (pathName === '/document-workspace') return 'documents.read';
+  if (pathName === '/document-review') return 'documents.read';
+  if (/^\/document-files\/[^/]+\/review$/.test(pathName)) return 'documents.verify';
+  if (pathName.startsWith('/document-files')) return read ? 'documents.read' : 'documents.upload';
+  if (pathName === '/form-review') return 'forms.read';
+  if (/^\/form-submissions\/[^/]+\/review$/.test(pathName)) return 'forms.review';
+  if (pathName.startsWith('/form-submissions')) return read ? 'forms.read' : 'forms.submit';
+  if (pathName.startsWith('/message-threads')) return read ? 'messages.read' : 'messages.send';
   if (pathName.includes('/scanned-documents') || pathName.startsWith('/documents')) {
     return read ? 'documents.read' : httpMethod === 'DELETE' ? 'documents.delete' : 'documents.upload';
   }
@@ -30,6 +40,7 @@ export function permissionForRequest({ path, method }) {
   if (pathName.startsWith('/admin/approve-request') || pathName.startsWith('/admin/update-child-status')) return 'applications.approve';
   if (pathName.startsWith('/admin/parents-with-portal')) return 'parents.create';
   if (pathName === '/admin/reset-parent-password') return 'accounts.issue_one_time_password';
+  if (/^\/admin\/parents\/[^/]+\/restore-access$/.test(pathName)) return 'applications.block';
   if (pathName.startsWith('/admin/child-documents') || pathName.startsWith('/admin/document-view')) return 'documents.read';
   if (pathName.startsWith('/admin/portal-health')) return 'settings.read';
   if (pathName === '/auth/authorities') return 'organizations.read';

@@ -15,7 +15,8 @@ import {
   Sun,
   Inbox,
   UserCog,
-  KeyRound
+  KeyRound,
+  FileCheck2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -37,6 +38,7 @@ import { GrantGadgetManager } from '@/sections/GrantGadgetManager';
 import { ReportsExports } from '@/sections/ReportsExports';
 import { AccessControl } from '@/sections/AccessControl';
 import { SystemConfiguration } from '@/sections/SystemConfiguration';
+import { DocumentReview } from '@/sections/DocumentReview';
 import RequestsTab from '@/components/Admin/RequestsTab';
 import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
@@ -58,7 +60,8 @@ type Page =
   | 'reports'
   | 'settings'
   | 'access-control'
-  | 'requests';
+  | 'requests'
+  | 'document-review';
 
 interface NavigationItem {
   id: Page;
@@ -82,6 +85,7 @@ const navigation: NavigationItem[] = [
   { id: 'grants', label: 'Grants & Gadgets', icon: Wallet },
   { id: 'reports', label: 'Reports', icon: FileSpreadsheet },
   { id: 'requests', label: 'Requests', icon: Inbox },
+  { id: 'document-review', label: 'Documents & Forms', icon: FileCheck2 },
   { id: 'settings', label: 'Configuration', icon: Shield },
   { id: 'access-control', label: 'Access Control', icon: UserCog },
 ];
@@ -114,6 +118,7 @@ function App() {
       'access-control': 'roles.read'
     };
     if (page === 'settings') return hasPermission('organizations.read') || hasPermission('rates.read') || hasPermission('settings.read');
+    if (page === 'document-review') return hasPermission('documents.read') || hasPermission('forms.read');
     const required = requiredPermissions[page];
     return required ? hasPermission(required) : false;
   };
@@ -239,6 +244,8 @@ function App() {
         return <ReportsExports onNavigate={navigateTo} />;
       case 'requests':  // <-- ADD THIS
         return <RequestsTab />;
+      case 'document-review':
+        return <DocumentReview />;
       case 'settings':
         return <SystemConfiguration />;
       case 'access-control':

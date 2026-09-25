@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import AuthorityManagement from '@/components/Admin/AuthorityManagement';
+import { DocumentFormConfiguration } from '@/sections/DocumentFormConfiguration';
 import { useAuth } from '@/hooks/useAuth';
 import { configuration, emptyReferenceData, type CategoryRate, type ParentFieldPolicy, type ReferenceData, type ReferenceItem, type ReferenceType } from '@/services/configuration';
 
@@ -45,6 +46,7 @@ export function SystemConfiguration() {
   const canReadAuthorities = hasPermission('organizations.read');
   const canReadPolicies = hasPermission('settings.read');
   const canManagePolicies = hasPermission('settings.manage');
+  const canReadDocumentForms = hasPermission('settings.read') || hasPermission('forms.read');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -153,6 +155,7 @@ export function SystemConfiguration() {
           <TabsTrigger value="registry">Master Data</TabsTrigger>
           {canReadRates && <TabsTrigger value="rates">Category Rates</TabsTrigger>}
           {canReadPolicies && <TabsTrigger value="parent-fields">Parent Fields</TabsTrigger>}
+          {canReadDocumentForms && <TabsTrigger value="document-forms">Documents & Forms</TabsTrigger>}
           {canReadAuthorities && <TabsTrigger value="credentials">Authority Credentials</TabsTrigger>}
         </TabsList>
 
@@ -183,6 +186,8 @@ export function SystemConfiguration() {
         {canReadPolicies && <TabsContent value="parent-fields">
           <Card><CardHeader><CardTitle>Parent-managed fields</CardTitle><CardDescription>Choose whether a parent change is immediate, requires staff approval, or is locked. Required fields drive profile completeness.</CardDescription></CardHeader><CardContent><Table><TableHeader><TableRow><TableHead>Field</TableHead><TableHead>Change policy</TableHead><TableHead>Required</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader><TableBody>{fieldPolicies.map(policy => <TableRow key={policy.fieldCode}><TableCell><div className="font-medium">{policy.label}</div><div className="font-mono text-xs text-muted-foreground">{policy.fieldCode}</div></TableCell><TableCell><Badge variant="outline">{policy.updateMode.replace('_', ' ')}</Badge></TableCell><TableCell>{policy.isRequired ? 'Yes' : 'No'}</TableCell><TableCell>{policy.isActive ? 'Active' : 'Hidden'}</TableCell><TableCell className="text-right">{canManagePolicies && <Button size="sm" variant="outline" onClick={() => setPolicyDraft({ ...policy, reason: '' })}>Configure</Button>}</TableCell></TableRow>)}</TableBody></Table></CardContent></Card>
         </TabsContent>}
+
+        {canReadDocumentForms && <TabsContent value="document-forms"><DocumentFormConfiguration /></TabsContent>}
 
         {canReadAuthorities && <TabsContent value="credentials"><Card><CardHeader><CardTitle className="flex items-center gap-2"><Building2 className="h-5 w-5" />Authority portal access</CardTitle><CardDescription>Director-authorized resets issue temporary credentials. Authority users change their own known password in their portal.</CardDescription></CardHeader><CardContent><AuthorityManagement /></CardContent></Card></TabsContent>}
       </Tabs>

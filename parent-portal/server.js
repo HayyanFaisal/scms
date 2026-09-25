@@ -8,6 +8,7 @@ import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import crypto from 'crypto';
 import multer from 'multer';
+import { documentFilePath, loadDocumentWorkspace, missingRequiredUploads, resolveDocumentOwner, storeDocumentFile, validateFormResponse } from '../server/document-management.js';
 import path from 'path';
 import fs from 'fs/promises';
 import dotenv from 'dotenv';
@@ -119,6 +120,11 @@ const upload = multer({
         if (allowed.includes(file.mimetype)) cb(null, true);
         else cb(new Error(`Only images and PDF allowed. Got: ${file.mimetype}`));
     }
+});
+
+const phaseTwoUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 50 * 1024 * 1024, files: 1 }
 });
 
 // Verify database connection and check main database tables
@@ -449,6 +455,203 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 
 // ==================== CHILD MANAGEMENT ====================
 
+app.get('/api/document-workspace', authenticateToken, async (req, res) => {
+    try {
+        const workspace = await loadDocumentWorkspace(pool, req.query.ownerType, req.query.ownerId);
+        if (workspace.owner.parentPNo !== req.user.pNoONo) return res.status(404).json({ error: 'Record not found' });
+        res.json(workspace);
+    } catch (error) {
+        const status = Number(error.status) || 500;
+        res.status(status).json({ error: error.publicCode ? error.message : 'Unable to load document workspace', code: error.publicCode });
+    }
+});
+
+app.post('/api/document-files', authenticateToken, (req, res) => {
+    phaseTwoUpload.single('file')(req, res, async uploadError => {
+        if (uploadError) return res.status(uploadError.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: uploadError.message });
+        const connection = await pool.getConnection();
+        try {
+            await connection.beginTransaction();
+            const owner = await resolveDocumentOwner(connection, req.body.ownerType, req.body.ownerId);
+            if (owner.parentPNo !== req.user.pNoONo) {
+                const error = new Error('Record not found');
+                error.status = 404;
+                error.publicCode = 'NOT_FOUND';
+                throw error;
+            }
+            const stored = await storeDocumentFile(connection, {
+                file: req.file,
+                documentTypeId: req.body.documentTypeId,
+                ownerType: req.body.ownerType,
+                ownerId: req.body.ownerId,
+                expiresOn: req.body.expiresOn,
+                uploaderType: 'parent',
+                uploaderId: req.user.pNoONo
+            });
+            await connection.query(
+                `INSERT INTO scms_audit_events
+                  (action, entity_type, entity_id, correlation_id, details)
+                 VALUES ('document.uploaded', 'document_file', ?, UUID(), JSON_OBJECT('parent', ?, 'ownerType', ?, 'ownerId', ?))`,
+                [String(stored.id), req.user.pNoONo, owner.ownerType, owner.ownerId]
+            );
+            await connection.commit();
+            res.status(201).json({ id: stored.id });
+        } catch (error) {
+            await connection.rollback();
+            res.status(Number(error.status) || 500).json({ error: error.publicCode ? error.message : 'Upload failed', code: error.publicCode });
+        } finally {
+            connection.release();
+        }
+    });
+});
+
+app.get('/api/document-files/:id/content', authenticateToken, async (req, res) => {
+    try {
+        const content = await documentFilePath(pool, req.params.id);
+        if (content.record.parent_p_no_o_no !== req.user.pNoONo) return res.status(404).json({ error: 'Document not found' });
+        res.type(content.record.verified_mime_type);
+        res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(content.record.original_file_name)}`);
+        res.sendFile(content.path);
+    } catch (error) {
+        res.status(Number(error.status) || 500).json({ error: error.publicCode ? error.message : 'Document content is unavailable' });
+    }
+});
+
+app.post('/api/form-submissions', authenticateToken, async (req, res) => {
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+        const owner = await resolveDocumentOwner(connection, req.body?.ownerType, req.body?.ownerId);
+        if (owner.parentPNo !== req.user.pNoONo) {
+            const error = new Error('Record not found');
+            error.status = 404;
+            error.publicCode = 'NOT_FOUND';
+            throw error;
+        }
+        const [[version]] = await connection.query(
+            `SELECT v.*, t.entity_scope FROM scms_form_template_versions v
+             INNER JOIN scms_form_templates t ON t.id = v.form_template_id
+             WHERE v.id = ? AND t.status = 'published'`,
+            [Number(req.body?.templateVersionId)]
+        );
+        if (!version || version.entity_scope !== owner.ownerType) {
+            const error = new Error('Form template not found');
+            error.status = 404;
+            error.publicCode = 'FORM_TEMPLATE_NOT_FOUND';
+            throw error;
+        }
+        const schema = typeof version.schema_json === 'string' ? JSON.parse(version.schema_json) : version.schema_json;
+        const response = validateFormResponse(schema, req.body?.response);
+        const [[latest]] = await connection.query(
+            `SELECT revision_number, status FROM scms_form_submissions
+             WHERE form_template_id = ? AND owner_type = ? AND owner_id = ?
+             ORDER BY revision_number DESC LIMIT 1 FOR UPDATE`,
+            [version.form_template_id, owner.ownerType, owner.ownerId]
+        );
+        if (latest && latest.status !== 'changes_required') {
+            const error = new Error(latest.status === 'verified' ? 'This form has already been verified.' : 'This form is already awaiting staff review.');
+            error.status = 409;
+            error.publicCode = 'FORM_ALREADY_SUBMITTED';
+            throw error;
+        }
+        const [result] = await connection.query(
+            `INSERT INTO scms_form_submissions
+              (form_template_id, form_template_version_id, owner_type, owner_id, parent_p_no_o_no,
+               revision_number, status, response_json, submitted_by_type, submitted_by_id, submitted_at)
+             VALUES (?, ?, ?, ?, ?, ?, 'submitted', ?, 'parent', ?, CURRENT_TIMESTAMP(3))`,
+            [version.form_template_id, version.id, owner.ownerType, owner.ownerId, owner.parentPNo,
+                Number(latest?.revision_number || 0) + 1, JSON.stringify(response), req.user.pNoONo]
+        );
+        await connection.query(
+            `INSERT INTO scms_audit_events (action, entity_type, entity_id, correlation_id, details)
+             VALUES ('form.submitted', 'form_submission', ?, UUID(), JSON_OBJECT('parent', ?, 'templateVersion', ?))`,
+            [String(result.insertId), req.user.pNoONo, version.id]
+        );
+        await connection.commit();
+        res.status(201).json({ id: Number(result.insertId) });
+    } catch (error) {
+        await connection.rollback();
+        res.status(Number(error.status) || 500).json({ error: error.publicCode ? error.message : 'Form submission failed', code: error.publicCode });
+    } finally {
+        connection.release();
+    }
+});
+
+app.get('/api/message-threads', authenticateToken, async (req, res) => {
+    try {
+        const owner = await resolveDocumentOwner(pool, req.query.ownerType, req.query.ownerId);
+        if (owner.parentPNo !== req.user.pNoONo) return res.status(404).json({ error: 'Record not found' });
+        const [threads] = await pool.execute(
+            'SELECT * FROM scms_message_threads WHERE owner_type = ? AND owner_id = ? ORDER BY updated_at DESC',
+            [owner.ownerType, owner.ownerId]
+        );
+        for (const thread of threads) {
+            const [messages] = await pool.execute(
+                'SELECT id, sender_type, sender_id, body, created_at FROM scms_messages WHERE thread_id = ? AND is_internal = FALSE ORDER BY created_at',
+                [thread.id]
+            );
+            thread.messages = messages;
+        }
+        res.json(threads);
+    } catch (error) {
+        res.status(Number(error.status) || 500).json({ error: error.publicCode ? error.message : 'Unable to load messages' });
+    }
+});
+
+app.post('/api/message-threads', authenticateToken, async (req, res) => {
+    const connection = await pool.getConnection();
+    try {
+        const subject = String(req.body?.subject || '').trim();
+        const body = String(req.body?.body || '').trim();
+        if (!subject || !body) return res.status(400).json({ error: 'Subject and first message are required' });
+        await connection.beginTransaction();
+        const owner = await resolveDocumentOwner(connection, req.body?.ownerType, req.body?.ownerId);
+        if (owner.parentPNo !== req.user.pNoONo) {
+            const error = new Error('Record not found'); error.status = 404; error.publicCode = 'NOT_FOUND'; throw error;
+        }
+        const [thread] = await connection.query(
+            `INSERT INTO scms_message_threads
+              (owner_type, owner_id, parent_p_no_o_no, subject, created_by_type, created_by_id)
+             VALUES (?, ?, ?, ?, 'parent', ?)`,
+            [owner.ownerType, owner.ownerId, owner.parentPNo, subject.slice(0,200), req.user.pNoONo]
+        );
+        await connection.query(
+            `INSERT INTO scms_messages (thread_id, sender_type, sender_id, body, is_internal)
+             VALUES (?, 'parent', ?, ?, FALSE)`,
+            [thread.insertId, req.user.pNoONo, body.slice(0,4000)]
+        );
+        await connection.commit();
+        res.status(201).json({ id: Number(thread.insertId) });
+    } catch (error) {
+        await connection.rollback();
+        res.status(Number(error.status) || 500).json({ error: error.publicCode ? error.message : 'Unable to create message thread' });
+    } finally { connection.release(); }
+});
+
+app.post('/api/message-threads/:id/messages', authenticateToken, async (req, res) => {
+    const connection = await pool.getConnection();
+    try {
+        const body = String(req.body?.body || '').trim();
+        if (!body) return res.status(400).json({ error: 'Message text is required' });
+        await connection.beginTransaction();
+        const [[thread]] = await connection.query('SELECT * FROM scms_message_threads WHERE id = ? FOR UPDATE', [Number(req.params.id)]);
+        if (!thread || thread.parent_p_no_o_no !== req.user.pNoONo || thread.status !== 'open') {
+            const error = new Error('Message thread not found'); error.status = 404; error.publicCode = 'THREAD_NOT_FOUND'; throw error;
+        }
+        await connection.query(
+            `INSERT INTO scms_messages (thread_id, sender_type, sender_id, body, is_internal)
+             VALUES (?, 'parent', ?, ?, FALSE)`,
+            [thread.id, req.user.pNoONo, body.slice(0,4000)]
+        );
+        await connection.query('UPDATE scms_message_threads SET updated_at = CURRENT_TIMESTAMP(3) WHERE id = ?', [thread.id]);
+        await connection.commit();
+        res.status(204).send();
+    } catch (error) {
+        await connection.rollback();
+        res.status(Number(error.status) || 500).json({ error: error.publicCode ? error.message : 'Unable to send message' });
+    } finally { connection.release(); }
+});
+
 app.post('/api/children', authenticateToken, async (req, res) => {
     const { childName, age, cnicBformNo, diseaseDisability, disabilityCategory, school } = req.body;
 
@@ -460,29 +663,63 @@ app.post('/api/children', authenticateToken, async (req, res) => {
             assertConfiguredValue('category', disabilityCategory),
             assertConfiguredValue('school', school)
         ]);
-        // Insert child directly with pending status
+        // Create a resumable draft. It enters the staff queue only after final submission.
         console.log('Adding child for parent:', req.user.pNoONo);
         const [result] = await pool.execute(
             `INSERT INTO dependent_children
               (P_No_O_No, Child_Name, Age, CNIC_BForm_No, Disease_Disability,
                Parent_Selected_Category, Approved_Category, Disability_Category, School, Status)
-             VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, 'pending')`,
-            [req.user.pNoONo, childName, age, cnicBformNo, diseaseDisability, disabilityCategory, school]
+             VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, 'draft')`,
+            [req.user.pNoONo, childName, age, cnicBformNo, diseaseDisability?.trim() || null, disabilityCategory, school]
         );
         await refreshChildCompleteness(pool, result.insertId);
         
-        console.log('Child added with ID:', result.insertId, 'Status: pending');
+        console.log('Child draft added with ID:', result.insertId);
 
         res.status(201).json({ 
-            message: 'Child added successfully, pending admin approval',
+            message: 'Child draft saved. Complete its configured requirements before submission.',
             child_id: result.insertId,
-            status: 'pending'
+            status: 'draft'
         });
     } catch (error) {
         if (error.status === 400) return res.status(400).json({ error: error.message });
         console.error('Failed to add child:', error);
         res.status(500).json({ error: 'Failed to add child' });
     }
+});
+
+app.post('/api/children/:childId/submit', authenticateToken, async (req, res) => {
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+        const [[child]] = await connection.query(
+            'SELECT Child_ID, P_No_O_No, Status FROM dependent_children WHERE Child_ID = ? FOR UPDATE',
+            [Number(req.params.childId)]
+        );
+        if (!child || child.P_No_O_No !== req.user.pNoONo) {
+            const error = new Error('Child record not found'); error.status = 404; error.publicCode = 'CHILD_NOT_FOUND'; throw error;
+        }
+        if (!['draft', 'changes_required'].includes(child.Status)) {
+            const error = new Error('This child registration has already been submitted.'); error.status = 409; error.publicCode = 'CHILD_ALREADY_SUBMITTED'; throw error;
+        }
+        const workspace = await loadDocumentWorkspace(connection, 'child', child.Child_ID);
+        const missing = missingRequiredUploads(workspace);
+        if (missing.length) {
+            const error = new Error(`Complete the required uploads before submission: ${missing.map(item => item.name).join(', ')}.`);
+            error.status = 409; error.publicCode = 'REQUIRED_DOCUMENTS_MISSING'; throw error;
+        }
+        await connection.query("UPDATE dependent_children SET Status = 'pending' WHERE Child_ID = ?", [child.Child_ID]);
+        await connection.query(
+            `INSERT INTO scms_audit_events (action, entity_type, entity_id, correlation_id, details)
+             VALUES ('child_registration.submitted', 'child', ?, UUID(), JSON_OBJECT('parent', ?))`,
+            [String(child.Child_ID), req.user.pNoONo]
+        );
+        await connection.commit();
+        res.json({ status: 'pending', message: 'Child registration submitted for staff review.' });
+    } catch (error) {
+        await connection.rollback();
+        res.status(Number(error.status) || 500).json({ error: error.publicCode ? error.message : 'Unable to submit child registration', code: error.publicCode });
+    } finally { connection.release(); }
 });
 
 app.get('/api/children', authenticateToken, async (req, res) => {
@@ -523,7 +760,7 @@ app.get('/api/children', authenticateToken, async (req, res) => {
 });
 
 // GET: Check if CNIC/B-Form already exists
-app.get('/api/children/check-cnic', async (req, res) => {
+app.get('/api/children/check-cnic', authenticateToken, async (req, res) => {
     const { cnic } = req.query;
     if (!cnic) {
         return res.status(400).json({ error: 'CNIC required' });
@@ -585,7 +822,12 @@ app.get('/api/admin/children', authenticateToken, async (req, res) => {
     }
 });
 
-// POST: Upload child document (4 types)
+// Retired fixed-type upload path. The configurable, versioned document endpoint replaces it.
+app.post('/api/children/:childId/documents', authenticateToken, (_req, res) => {
+    res.status(410).json({ error: 'This upload workflow has been retired. Reload the portal to use configured document requirements.' });
+});
+
+// Legacy implementation retained temporarily for data-migration reference; unreachable because of the 410 route above.
 app.post('/api/children/:childId/documents', authenticateToken, upload.single('file'), async (req, res) => {
     const { childId } = req.params;
     const { documentType, identifier } = req.body;
@@ -710,6 +952,9 @@ app.get('/api/children/:childId/documents', async (req, res) => {
         }
         
         const pNoONo = children[0].P_No_O_No;
+        if (!useApiKey && req.user?.pNoONo !== pNoONo) {
+            return res.status(404).json({ error: 'Documents not found' });
+        }
         console.log('Portal: Found P_No_O_No:', pNoONo, 'for childId:', childId);
         
         // Query documents from parent_document_files using P_No_O_No
@@ -760,6 +1005,14 @@ app.get('/api/documents/view', async (req, res) => {
     }
     
     if (!filePath) return res.status(400).json({ error: 'Path required' });
+
+    if (!useApiKey) {
+        const [ownedFiles] = await pool.execute(
+            'SELECT Document_File_ID FROM parent_document_files WHERE P_No_O_No = ? AND Storage_Path = ?',
+            [req.user.pNoONo, filePath]
+        );
+        if (ownedFiles.length === 0) return res.status(404).json({ error: 'Document not found' });
+    }
     
     // Security: ensure path is within UPLOAD_DIR
     // Try PN folder first (new structure)
@@ -1389,7 +1642,7 @@ app.get('/api/sync/pending', async (req, res) => {
                     parentName: matchingParent?.Parent_Name
                 },
                 status: child.Status,
-                created_at: new Date().toISOString(),
+                created_at: child.Created_At,
                 p_no_o_no: child.P_No_O_No,
                 email: matchingParent?.Email,
                 parent_name: matchingParent?.Parent_Name,
@@ -1524,7 +1777,8 @@ app.post('/api/sync/approval', async (req, res) => {
         } else if (action === 'block') {
             if (request.request_type === 'parent_registration') {
                 await pool.execute(
-                    `UPDATE parent_beneficiary SET Status = 'blocked', Block_Reason = ?, Blocked_At = NOW()
+                    `UPDATE parent_beneficiary SET Status = 'blocked', Block_Reason = ?, Blocked_At = NOW(),
+                     Credential_Version = Credential_Version + 1
                      WHERE P_No_O_No = ?`,
                     [adminNotes || 'Contact the office', request.user_id]
                 );
