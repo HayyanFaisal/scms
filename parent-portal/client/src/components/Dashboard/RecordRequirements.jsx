@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import PortalToast from '../PortalToast'
 
 const RecordRequirements = ({ token, childId, childName, identifier, onBack, onFinish, finishLabel = 'Finish registration' }) => {
   const [workspace, setWorkspace] = useState(null)
@@ -10,6 +11,8 @@ const RecordRequirements = ({ token, childId, childName, identifier, onBack, onF
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [previewFile, setPreviewFile] = useState(null)
+  const dismissError = useCallback(() => setError(''), [])
+  const dismissNotice = useCallback(() => setNotice(''), [])
 
   const load = useCallback(async () => {
     setError('')
@@ -139,11 +142,11 @@ const RecordRequirements = ({ token, childId, childName, identifier, onBack, onF
   const requiredDocuments = workspace.requirements.filter(item => item.is_required && ['upload', 'either'].includes(item.fulfillment_mode))
   const satisfiedDocuments = requiredDocuments.filter(item => filesByType.has(item.document_type_id)).length
 
-  return <div className="max-w-4xl space-y-6">
+  return <div className="w-full max-w-7xl space-y-6">
+    <PortalToast message={error} type="error" onClose={dismissError} duration={8000} />
+    <PortalToast message={notice} type="success" onClose={dismissNotice} />
     <div><h1 className="text-2xl font-bold text-slate-800 dark:text-white">Documents & Digital Forms</h1><p className="text-slate-500 dark:text-slate-400">Complete the configured requirements for {childName} ({identifier}).</p></div>
     <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-950 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-100"><strong>How saving works:</strong> a document is saved as soon as its upload completes, so refreshing will not remove it. A replacement creates a new version and keeps the older version in history. Digital-form answers are saved only when you press <strong>Submit form</strong>.</div>
-    {error && <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-800 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200" role="alert">{error}</div>}
-    {notice && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200" role="status">{notice}</div>}
     <div className="rounded-xl border bg-white p-4 dark:bg-slate-800"><div className="flex justify-between text-sm"><span>Required uploads saved</span><strong>{satisfiedDocuments}/{requiredDocuments.length}</strong></div></div>
 
     <div className="grid gap-4 md:grid-cols-2">{workspace.requirements.map(requirement => {
@@ -170,7 +173,7 @@ const RecordRequirements = ({ token, childId, childName, identifier, onBack, onF
     {workspace.requirements.length === 0 && workspace.forms.length === 0 && <div className="rounded-xl border p-8 text-center text-slate-500">No document or digital-form requirements are currently configured for child records.</div>}
     <div className="flex justify-between"><button onClick={onBack} className="rounded-xl bg-slate-100 px-5 py-3 text-slate-800 dark:bg-slate-700 dark:text-white">Back</button><button disabled={satisfiedDocuments < requiredDocuments.length} onClick={onFinish} className="rounded-xl bg-emerald-600 px-6 py-3 text-white disabled:cursor-not-allowed disabled:opacity-50">{finishLabel}</button></div>
 
-    {previewFile && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/75 p-4" role="dialog" aria-modal="true" aria-label={previewFile.name}><div className="flex h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-900"><div className="flex items-center justify-between border-b p-4"><div className="truncate font-semibold">{previewFile.name}</div><button onClick={() => setPreviewFile(null)} className="rounded-lg px-3 py-2 text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-800">Close</button></div><div className="min-h-0 flex-1 bg-slate-100 p-3 dark:bg-slate-950">{previewFile.mime === 'application/pdf' ? <iframe className="h-full w-full rounded-lg bg-white" src={previewFile.url} title={previewFile.name} /> : <img className="h-full w-full object-contain" src={previewFile.url} alt={previewFile.name} />}</div></div></div>}
+    {previewFile && <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-950/75 p-4" role="dialog" aria-modal="true" aria-label={previewFile.name} onMouseDown={event => { if (event.target === event.currentTarget) setPreviewFile(null) }}><div className="flex h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-900"><div className="flex items-center justify-between gap-3 border-b p-4"><div className="min-w-0 truncate font-semibold">{previewFile.name}</div><div className="flex shrink-0 gap-2"><a href={previewFile.url} target="_blank" rel="noreferrer" className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Open tab</a><a href={previewFile.url} download={previewFile.name} className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Download</a><button onClick={() => setPreviewFile(null)} className="rounded-lg px-3 py-2 text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-800">Close</button></div></div><div className="min-h-0 flex-1 bg-slate-100 p-3 dark:bg-slate-950">{previewFile.mime === 'application/pdf' ? <iframe className="h-full w-full rounded-lg bg-white" src={previewFile.url} title={previewFile.name} /> : /^image\/(jpeg|png|gif|webp)$/.test(previewFile.mime) ? <img className="h-full w-full object-contain" src={previewFile.url} alt={previewFile.name} /> : <div className="flex h-full items-center justify-center"><div className="max-w-md rounded-2xl bg-white p-8 text-center shadow dark:bg-slate-800"><span className="material-symbols-outlined text-5xl text-slate-400">draft</span><h3 className="mt-3 font-semibold">Preview unavailable for this file type</h3><p className="mt-2 text-sm text-slate-500">The file is safely stored. Use Open tab or Download to view it in a compatible application.</p></div></div>}</div></div></div>}
   </div>
 }
 

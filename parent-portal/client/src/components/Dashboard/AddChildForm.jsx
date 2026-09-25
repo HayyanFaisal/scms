@@ -70,7 +70,7 @@ const AddChildForm = () => {
 
   const inputClass = 'w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 transition-all focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-100'
 
-  return <div className="max-w-3xl space-y-8">
+  return <div className="mx-auto w-full max-w-6xl space-y-8">
     <div>
       <div className="mb-4 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-600/30"><span className="material-symbols-outlined">person_add</span></div><div><h1 className="text-2xl font-bold text-slate-800 dark:text-white">Register New Child</h1><p className="text-slate-500 dark:text-slate-400">Enter the child record, then complete configured documents and forms.</p></div></div>

@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/useAuth';
 import { apiFetch, readApiError } from '@/services/http';
+import { SubmissionViewer, type SubmissionViewerItem } from '@/components/SubmissionViewer';
 
 interface DocumentRow {
   id: number; document_name: string; original_file_name: string; owner_type: string; owner_id: string;
@@ -47,6 +48,8 @@ export function DocumentReview() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  const [viewerItem, setViewerItem] = useState<SubmissionViewerItem | null>(null);
+  const closeViewer = useCallback(() => setViewerItem(null), []);
 
   const load = useCallback(async () => {
     setError('');
@@ -124,11 +127,11 @@ export function DocumentReview() {
     } finally { setBusy(false); }
   };
 
-  const recordActions = (kind: 'document' | 'form', id: number, status: string, target: MessageTarget) => {
+  const recordActions = (kind: 'document' | 'form', id: number, status: string, target: MessageTarget, previewItem: SubmissionViewerItem) => {
     const reviewable = ['pending_review', 'submitted', 'changes_required'].includes(status);
     const mayReview = kind === 'document' ? hasPermission('documents.verify') : hasPermission('forms.review');
     return <div className="flex flex-wrap justify-end gap-1">
-      {kind === 'document' && <Button size="sm" variant="outline" onClick={() => window.open(`/api/document-files/${id}/content`, '_blank', 'noopener,noreferrer')}><Eye className="mr-1 h-4 w-4" />View</Button>}
+      <Button size="sm" variant="outline" onClick={() => setViewerItem(previewItem)}><Eye className="mr-1 h-4 w-4" />Preview</Button>
       {hasPermission('messages.read') && <Button size="sm" variant="outline" onClick={() => openMessages(target)}><MessageSquare className="mr-1 h-4 w-4" />Messages</Button>}
       {reviewable && mayReview && <>
         <Button size="sm" variant="outline" onClick={() => setDecision({ kind, id, action: 'verified' })}><CheckCircle2 className="mr-1 h-4 w-4" />Verify</Button>
@@ -140,7 +143,8 @@ export function DocumentReview() {
 
   const readableResponse = (row: FormRow) => {
     const labels = new Map(row.schema_json.sections?.flatMap(section => section.fields.map(field => [field.key, field.label] as const)) || []);
-    return Object.entries(row.response_json).map(([key, value]) => <div key={key} className="text-xs"><span className="font-medium">{labels.get(key) || key}:</span> {typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value)}</div>);
+    const entries = Object.entries(row.response_json || {});
+    return <>{entries.slice(0, 2).map(([key, value]) => <div key={key} className="truncate text-xs"><span className="font-medium">{labels.get(key) || key}:</span> {typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value)}</div>)}{entries.length > 2 && <div className="text-xs font-medium text-primary">+ {entries.length - 2} more answers</div>}</>;
   };
 
   const currentThread = threads.find(thread => thread.id === selectedThread);
@@ -151,8 +155,8 @@ export function DocumentReview() {
     {notice && <Alert><AlertDescription>{notice}</AlertDescription></Alert>}
     <Tabs defaultValue="documents">
       <TabsList><TabsTrigger value="documents">Uploads ({documents.filter(row => row.status === 'pending_review').length})</TabsTrigger><TabsTrigger value="forms">Forms ({forms.filter(row => row.status === 'submitted').length})</TabsTrigger></TabsList>
-      <TabsContent value="documents"><Card><CardHeader><CardTitle>Document review queue</CardTitle><CardDescription>File signatures and checksums were captured before these records entered the queue.</CardDescription></CardHeader><CardContent><Table><TableHeader><TableRow><TableHead>Document</TableHead><TableHead>Parent / Record</TableHead><TableHead>Authority</TableHead><TableHead>Status</TableHead><TableHead>Uploaded</TableHead><TableHead /></TableRow></TableHeader><TableBody>{documents.map(row => <TableRow key={row.id}><TableCell><div className="font-medium">{row.document_name}</div><div className="text-xs text-muted-foreground">{row.original_file_name}</div></TableCell><TableCell>{row.Parent_Name}<div className="text-xs">{row.owner_type} {row.owner_id}</div></TableCell><TableCell>{row.Admin_Authority || 'Unassigned'}</TableCell><TableCell><Badge variant="outline">{row.status.replace('_', ' ')}</Badge>{row.review_reason && <div className="mt-1 text-xs text-red-600">{row.review_reason}</div>}</TableCell><TableCell>{new Date(row.uploaded_at).toLocaleString()}</TableCell><TableCell>{recordActions('document', row.id, row.status, { ownerType: row.owner_type, ownerId: row.owner_id, label: `${row.document_name} · ${row.Parent_Name}` })}</TableCell></TableRow>)}</TableBody></Table></CardContent></Card></TabsContent>
-      <TabsContent value="forms"><Card><CardHeader><CardTitle>Structured form review</CardTitle><CardDescription>Responses remain tied to their exact published template version.</CardDescription></CardHeader><CardContent><Table><TableHeader><TableRow><TableHead>Form</TableHead><TableHead>Parent / Record</TableHead><TableHead>Authority</TableHead><TableHead>Status</TableHead><TableHead>Response</TableHead><TableHead /></TableRow></TableHeader><TableBody>{forms.map(row => <TableRow key={row.id}><TableCell>{row.form_name}</TableCell><TableCell>{row.Parent_Name}<div className="text-xs">{row.owner_type} {row.owner_id}</div></TableCell><TableCell>{row.Admin_Authority || 'Unassigned'}</TableCell><TableCell><Badge variant="outline">{row.status.replace('_', ' ')}</Badge>{row.review_reason && <div className="mt-1 text-xs text-red-600">{row.review_reason}</div>}</TableCell><TableCell className="max-w-sm space-y-1">{readableResponse(row)}</TableCell><TableCell>{recordActions('form', row.id, row.status, { ownerType: row.owner_type, ownerId: row.owner_id, label: `${row.form_name} · ${row.Parent_Name}` })}</TableCell></TableRow>)}</TableBody></Table></CardContent></Card></TabsContent>
+      <TabsContent value="documents"><Card><CardHeader><CardTitle>Document review queue</CardTitle><CardDescription>File signatures and checksums were captured before these records entered the queue.</CardDescription></CardHeader><CardContent><Table><TableHeader><TableRow><TableHead>Document</TableHead><TableHead>Parent / Record</TableHead><TableHead>Authority</TableHead><TableHead>Status</TableHead><TableHead>Uploaded</TableHead><TableHead /></TableRow></TableHeader><TableBody>{documents.map(row => <TableRow key={row.id}><TableCell><div className="font-medium">{row.document_name}</div><div className="text-xs text-muted-foreground">{row.original_file_name}</div></TableCell><TableCell>{row.Parent_Name}<div className="text-xs">{row.owner_type} {row.owner_id}</div></TableCell><TableCell>{row.Admin_Authority || 'Unassigned'}</TableCell><TableCell><Badge variant="outline">{row.status.replace('_', ' ')}</Badge>{row.review_reason && <div className="mt-1 text-xs text-red-600">{row.review_reason}</div>}</TableCell><TableCell>{new Date(row.uploaded_at).toLocaleString()}</TableCell><TableCell>{recordActions('document', row.id, row.status, { ownerType: row.owner_type, ownerId: row.owner_id, label: `${row.document_name} · ${row.Parent_Name}` }, { kind: 'document', id: row.id, title: row.document_name, fileName: row.original_file_name, status: row.status })}</TableCell></TableRow>)}</TableBody></Table></CardContent></Card></TabsContent>
+      <TabsContent value="forms"><Card><CardHeader><CardTitle>Structured form review</CardTitle><CardDescription>Responses remain tied to their exact published template version.</CardDescription></CardHeader><CardContent><Table><TableHeader><TableRow><TableHead>Form</TableHead><TableHead>Parent / Record</TableHead><TableHead>Authority</TableHead><TableHead>Status</TableHead><TableHead>Response</TableHead><TableHead /></TableRow></TableHeader><TableBody>{forms.map(row => <TableRow key={row.id}><TableCell>{row.form_name}</TableCell><TableCell>{row.Parent_Name}<div className="text-xs">{row.owner_type} {row.owner_id}</div></TableCell><TableCell>{row.Admin_Authority || 'Unassigned'}</TableCell><TableCell><Badge variant="outline">{row.status.replace('_', ' ')}</Badge>{row.review_reason && <div className="mt-1 text-xs text-red-600">{row.review_reason}</div>}</TableCell><TableCell className="max-w-sm space-y-1">{readableResponse(row)}</TableCell><TableCell>{recordActions('form', row.id, row.status, { ownerType: row.owner_type, ownerId: row.owner_id, label: `${row.form_name} · ${row.Parent_Name}` }, { kind: 'form', title: row.form_name, schema: row.schema_json, response: row.response_json, status: row.status })}</TableCell></TableRow>)}</TableBody></Table></CardContent></Card></TabsContent>
     </Tabs>
 
     <Dialog open={Boolean(decision)} onOpenChange={open => { if (!open) { setDecision(null); setReason(''); } }}><DialogContent><DialogHeader><DialogTitle>{decision?.action === 'verified' ? 'Verify submission' : decision?.action === 'changes_required' ? 'Request replacement or correction' : 'Reject submission'}</DialogTitle></DialogHeader><div className="space-y-2"><Label>{decision?.action === 'verified' ? 'Optional review note' : 'Parent-facing reason'}</Label><Textarea value={reason} onChange={event => setReason(event.target.value)} /></div><DialogFooter><Button variant="outline" onClick={() => setDecision(null)}>Cancel</Button><Button disabled={busy || (decision?.action !== 'verified' && reason.trim().length < 5)} onClick={() => void review()}>Confirm decision</Button></DialogFooter></DialogContent></Dialog>
@@ -172,5 +176,6 @@ export function DocumentReview() {
         <DialogFooter><Button variant="outline" onClick={() => setMessageTarget(null)}>Close</Button>{hasPermission('messages.send') && <Button disabled={busy || !messageDraft.body.trim() || (!selectedThread && !messageDraft.subject.trim())} onClick={() => void sendMessage()}><Send className="mr-2 h-4 w-4" />{messageDraft.isInternal ? 'Add internal note' : 'Send to parent'}</Button>}</DialogFooter>
       </DialogContent>
     </Dialog>
+    <SubmissionViewer item={viewerItem} onClose={closeViewer} />
   </div>;
 }

@@ -151,7 +151,7 @@ const Dashboard = () => {
         </header>
 
         {/* Page Content */}
-        <div className="p-8">
+        <div className="mx-auto w-full max-w-[1600px] px-6 py-8 lg:px-10 xl:px-12">
           <Routes>
             <Route path="/" element={<Overview />} />
             <Route path="/children" element={<ChildrenList />} />
@@ -188,7 +188,7 @@ const Overview = () => {
   ]
   
   return (
-    <div className="space-y-8 max-w-5xl">
+    <div className="w-full max-w-7xl space-y-8">
       {/* Welcome Section */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-600 via-blue-700 to-slate-800 p-8 text-white shadow-2xl shadow-blue-900/30">
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl"></div>

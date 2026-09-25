@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import RecordRequirements from './RecordRequirements'
+import PortalToast from '../PortalToast'
 
 const ChildDetailsPage = () => {
   const { childId } = useParams()
@@ -14,6 +15,8 @@ const ChildDetailsPage = () => {
   const [notice, setNotice] = useState('')
   const [showSuccess, setShowSuccess] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const dismissError = useCallback(() => setError(''), [])
+  const dismissNotice = useCallback(() => setNotice(''), [])
 
   useEffect(() => {
     let active = true
@@ -55,11 +58,11 @@ const ChildDetailsPage = () => {
     } finally { setSubmitting(false) }
   }
 
-  return <div className="space-y-6">
+  return <div className="w-full max-w-7xl space-y-6">
+    <PortalToast message={error} type="error" onClose={dismissError} duration={8000} />
+    <PortalToast message={notice} type="success" onClose={dismissNotice} />
     {isDraft && <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-950 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-100"><strong>Step 2 of 2:</strong> this is a saved draft and is not yet in the staff review queue. Complete the current requirements, then submit it below. This URL can be refreshed safely.</div>}
-    {error && <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-800 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200" role="alert">{error}</div>}
-    {notice && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200" role="status">{notice}</div>}
-    <div className="max-w-4xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+    <div className="w-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
       <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-sm font-medium text-blue-700 dark:text-blue-300">Child record</p><h1 className="text-2xl font-bold text-slate-900 dark:text-white">{child.child_name}</h1><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">CNIC/B-Form: {child.cnic_bform_no}</p></div><span className={`rounded-full border px-3 py-1.5 text-sm font-semibold ${statusClass}`}>{String(child.status || 'unknown').replace('_', ' ')}</span></div>
       <dl className="mt-5 grid gap-4 text-sm sm:grid-cols-3"><div><dt className="text-slate-500 dark:text-slate-400">Age</dt><dd className="font-semibold text-slate-900 dark:text-white">{child.age}</dd></div><div><dt className="text-slate-500 dark:text-slate-400">School</dt><dd className="font-semibold text-slate-900 dark:text-white">{child.school || 'Not set'}</dd></div><div><dt className="text-slate-500 dark:text-slate-400">Category</dt><dd className="font-semibold text-slate-900 dark:text-white">{child.disability_category || 'Pending staff decision'}</dd></div></dl>
     </div>

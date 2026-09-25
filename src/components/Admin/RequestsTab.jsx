@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import './RequestsTab.css'
 import { apiFetch } from '../../services/http'
 import { useAuth } from '../../hooks/useAuth'
+import { SubmissionViewer } from '../SubmissionViewer'
 
 const RequestsTab = () => {
     const { hasPermission } = useAuth()
@@ -15,6 +16,7 @@ const RequestsTab = () => {
     const [parentBanking, setParentBanking] = useState(null)
     const [categories, setCategories] = useState([])
     const [approvedCategory, setApprovedCategory] = useState('')
+    const [viewerItem, setViewerItem] = useState(null)
 
     const fetchRequests = async () => {
         setLoading(true)
@@ -325,10 +327,10 @@ const RequestsTab = () => {
                                                 const file = currentFiles.get(requirement.document_type_id)
                                                 return <div key={requirement.requirement_id} className={`admin-doc-item ${file ? 'has-doc' : 'missing'}`}>
                                                     <span className="doc-label">{requirement.name}{requirement.is_required ? ' · Required' : ''}</span>
-                                                    {file ? <><span className="no-doc">{file.original_file_name}</span><span className="no-doc">Version {file.version_number} · {file.status.replace('_', ' ')}</span><button className="btn-view" onClick={() => window.open(`/api/document-files/${file.id}/content`, '_blank', 'noopener,noreferrer')}>Open saved file</button></> : <span className="no-doc">Not uploaded</span>}
+                                                    {file ? <><span className="no-doc">{file.original_file_name}</span><span className="no-doc">Version {file.version_number} · {file.status.replace('_', ' ')}</span><button className="btn-view" onClick={() => setViewerItem({ kind: 'document', id: file.id, title: requirement.name, fileName: file.original_file_name, status: file.status, version: file.version_number })}>Preview document</button></> : <span className="no-doc">Not uploaded</span>}
                                                 </div>
                                             })}
-                                            {(workspace.forms || []).map(form => <div key={form.template_version_id} className={`admin-doc-item ${form.submission_id ? 'has-doc' : 'missing'}`}><span className="doc-label">Digital form · {form.name}</span><span className="no-doc">{form.submission_status ? form.submission_status.replace('_', ' ') : 'Not submitted'}</span>{form.submission_id && <pre className="no-doc">{JSON.stringify(form.response_json, null, 2)}</pre>}</div>)}
+                                            {(workspace.forms || []).map(form => <div key={form.template_version_id} className={`admin-doc-item ${form.submission_id ? 'has-doc' : 'missing'}`}><span className="doc-label">Digital form · {form.name}</span><span className="no-doc">{form.submission_status ? form.submission_status.replace('_', ' ') : 'Not submitted'}</span>{form.submission_id && <button className="btn-view" onClick={() => setViewerItem({ kind: 'form', title: form.name, schema: form.schema_json, response: form.response_json, status: form.submission_status, version: form.version_number })}>Review completed form</button>}</div>)}
                                         </div>
                                     })()}
                                 </div>
@@ -380,7 +382,7 @@ const RequestsTab = () => {
                     </div>
                 </div>
             )}
-            
+            <SubmissionViewer item={viewerItem} onClose={() => setViewerItem(null)} />
         </div>
     )
 }
