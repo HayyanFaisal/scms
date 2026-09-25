@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import AuthoritySettings from './AuthoritySettings'
 import './AuthorityDashboard.css'
 
 const AuthorityDashboard = () => {
@@ -27,8 +28,12 @@ const AuthorityDashboard = () => {
         
         const user = JSON.parse(authorityUser)
         setAuthorityInfo(user)
-        
-        fetchData()
+        if (user.mustChangePassword) {
+            setActiveTab('settings')
+            setLoading(false)
+        } else {
+            fetchData()
+        }
     }, [])
 
     const fetchData = async () => {
@@ -259,7 +264,10 @@ const AuthorityDashboard = () => {
             </header>
 
             <nav className="dashboard-nav">
-                {['dashboard', 'parents', 'children', 'grants', 'gadgets'].map(tab => (
+                {(authorityInfo?.mustChangePassword
+                    ? ['settings']
+                    : ['dashboard', 'parents', 'children', 'grants', 'gadgets', 'settings']
+                ).map(tab => (
                     <button
                         key={tab}
                         className={`nav-tab ${activeTab === tab ? 'active' : ''}`}
@@ -276,6 +284,9 @@ const AuthorityDashboard = () => {
                 {activeTab === 'children' && renderChildren()}
                 {activeTab === 'grants' && renderGrants()}
                 {activeTab === 'gadgets' && renderGadgets()}
+                {activeTab === 'settings' && (
+                    <AuthoritySettings authority={authorityInfo?.authority} onPasswordChanged={handleLogout} />
+                )}
             </main>
         </div>
     )

@@ -22,20 +22,19 @@ export function Login({ onLogin }: LoginProps) {
   const { login } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
 
-    setTimeout(() => {
-      const user = login(username, password);
-      if (user) {
-        onLogin();
-      } else {
-        setError('Invalid username or password');
-      }
+    try {
+      await login(username, password);
+      onLogin();
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : 'Unable to sign in.');
+    } finally {
       setIsLoading(false);
-    }, 500);
+    }
   };
 
   return (
@@ -121,14 +120,9 @@ export function Login({ onLogin }: LoginProps) {
               </Button>
             </form>
 
-            <div className="mt-6 p-4 bg-gradient-to-br from-blue-50 to-sky-50 dark:from-slate-700/50 dark:to-slate-800/50 rounded-lg text-sm border border-blue-200/70 dark:border-slate-700/70">
-              <p className="font-medium text-blue-900 dark:text-slate-200 mb-2">Demo Credentials:</p>
-              <div className="space-y-1 text-blue-800 dark:text-slate-300">
-                <p><span className="font-mono bg-white dark:bg-slate-700 border border-blue-200 dark:border-slate-600 px-1 rounded">admin</span> / <span className="font-mono bg-white dark:bg-slate-700 border border-blue-200 dark:border-slate-600 px-1 rounded">admin123</span> - Full Access</p>
-                <p><span className="font-mono bg-white dark:bg-slate-700 border border-blue-200 dark:border-slate-600 px-1 rounded">finance</span> / <span className="font-mono bg-white dark:bg-slate-700 border border-blue-200 dark:border-slate-600 px-1 rounded">finance123</span> - Finance Officer</p>
-                <p><span className="font-mono bg-white dark:bg-slate-700 border border-blue-200 dark:border-slate-600 px-1 rounded">operator</span> / <span className="font-mono bg-white dark:bg-slate-700 border border-blue-200 dark:border-slate-600 px-1 rounded">operator123</span> - Data Entry</p>
-              </div>
-            </div>
+            <p className="mt-6 text-center text-sm text-blue-800/80 dark:text-slate-400">
+              Use the individual account issued by an authorized Director.
+            </p>
           </CardContent>
         </Card>
 

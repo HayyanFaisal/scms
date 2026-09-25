@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useChildren, useParents } from '@/hooks/useDatabase';
+import { useReferenceData } from '@/hooks/useReferenceData';
 import type { DisabilityCategory } from '@/types';
 
 interface ChildFormProps {
@@ -19,6 +20,7 @@ interface ChildFormProps {
 export function ChildForm({ pNo, onSave, onCancel }: ChildFormProps) {
   const { create } = useChildren();
   const { parents } = useParents();
+  const { items: referenceItems, loading: referenceLoading, error: referenceError } = useReferenceData();
   const [errors, setErrors] = useState<string[]>([]);
 
   const sortedParents = useMemo(() => {
@@ -36,6 +38,10 @@ export function ChildForm({ pNo, onSave, onCancel }: ChildFormProps) {
     School: ''
   });
 
+  const selectedCategory = referenceItems.category.some(item => item.name === formData.Disability_Category)
+    ? formData.Disability_Category
+    : referenceItems.category[0]?.name || '';
+
   const validate = (): boolean => {
     const nextErrors: string[] = [];
 
@@ -48,7 +54,7 @@ export function ChildForm({ pNo, onSave, onCancel }: ChildFormProps) {
     }
 
     if (!formData.CNIC_BForm_No.trim()) nextErrors.push('CNIC/B-Form number is required');
-    if (!formData.Disease_Disability.trim()) nextErrors.push('Disease/Disability is required');
+    if (!selectedCategory) nextErrors.push('Disability category is required');
     if (!formData.School.trim()) nextErrors.push('School is required');
 
     setErrors(nextErrors);
@@ -56,6 +62,7 @@ export function ChildForm({ pNo, onSave, onCancel }: ChildFormProps) {
   };
 
   const handleSave = () => {
+    if (referenceLoading || referenceError) return;
     if (!validate()) return;
 
     create({
@@ -64,7 +71,7 @@ export function ChildForm({ pNo, onSave, onCancel }: ChildFormProps) {
       Age: Number(formData.Age),
       CNIC_BForm_No: formData.CNIC_BForm_No.trim(),
       Disease_Disability: formData.Disease_Disability.trim(),
-      Disability_Category: formData.Disability_Category,
+      Disability_Category: selectedCategory,
       Disability_Certificate_No: formData.Disability_Certificate_No.trim(),
       School: formData.School.trim()
     });
@@ -83,7 +90,7 @@ export function ChildForm({ pNo, onSave, onCancel }: ChildFormProps) {
           <h1 className="text-2xl font-bold text-slate-900">Add Dependent Child</h1>
           <p className="text-slate-500">Create a new child profile for an existing parent beneficiary</p>
         </div>
-        <Button onClick={handleSave}>
+        <Button onClick={handleSave} disabled={referenceLoading || !!referenceError}>
           <Save className="w-4 h-4 mr-2" />
           Save Child
         </Button>
@@ -100,6 +107,8 @@ export function ChildForm({ pNo, onSave, onCancel }: ChildFormProps) {
           </AlertDescription>
         </Alert>
       )}
+
+      {referenceError && <Alert variant="destructive"><AlertDescription>{referenceError} Configuration must be available before this record can be saved.</AlertDescription></Alert>}
 
       <Card>
         <CardHeader>
@@ -162,16 +171,14 @@ export function ChildForm({ pNo, onSave, onCancel }: ChildFormProps) {
             <div className="space-y-2">
               <Label>Disability Category</Label>
               <Select
-                value={formData.Disability_Category}
+                value={selectedCategory}
                 onValueChange={(value) => setFormData(prev => ({ ...prev, Disability_Category: value as DisabilityCategory }))}
               >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="A">Category A</SelectItem>
-                  <SelectItem value="B">Category B</SelectItem>
-                  <SelectItem value="C">Category C</SelectItem>
+                  {referenceItems.category.map(item => <SelectItem key={item.id} value={item.name}>Category {item.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -186,21 +193,20 @@ export function ChildForm({ pNo, onSave, onCancel }: ChildFormProps) {
             </div>
 
             <div className="space-y-2 md:col-span-2">
-              <Label>Disease/Disability</Label>
+              <Label>Additional Notes (optional)</Label>
               <Textarea
                 value={formData.Disease_Disability}
                 onChange={(e) => setFormData(prev => ({ ...prev, Disease_Disability: e.target.value }))}
-                placeholder="Describe the condition"
+                placeholder="Add any non-medical administrative notes"
               />
             </div>
 
             <div className="space-y-2 md:col-span-2">
               <Label>School</Label>
-              <Input
-                value={formData.School}
-                onChange={(e) => setFormData(prev => ({ ...prev, School: e.target.value }))}
-                placeholder="Enter school name"
-              />
+              <Select value={formData.School} onValueChange={(value) => setFormData(prev => ({ ...prev, School: value }))} disabled={referenceLoading}>
+                <SelectTrigger><SelectValue placeholder="Select school" /></SelectTrigger>
+                <SelectContent>{referenceItems.school.map(item => <SelectItem key={item.id} value={item.name}>{item.name}</SelectItem>)}</SelectContent>
+              </Select>
             </div>
           </div>
         </CardContent>

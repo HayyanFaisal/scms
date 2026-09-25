@@ -15,8 +15,7 @@ import type {
   DisabilityCategory
 } from '@/types';
 import { formatChildDisplayName } from '@/lib/utils';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+import { apiFetch } from './http';
 
 type DatabaseSnapshot = {
   parents: ParentBeneficiary[];
@@ -122,13 +121,7 @@ function normalizeGadget(row: any): ChildGadgets {
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers || {})
-    },
-    ...init
-  });
+  const response = await apiFetch(path, init);
 
   if (!response.ok) {
     const message = await response.text();
@@ -152,53 +145,18 @@ const DB_KEYS = {
   GADGETS: 'scms_gadgets',
   USERS: 'scms_users',
   AUDIT_LOG: 'scms_audit_log',
-  CURRENT_USER: 'scms_current_user',
   NOTIFICATIONS: 'scms_notifications'
 };
 
 // Initialize default data
 const initializeDefaultData = () => {
-  // Default admin user
-  const defaultUsers: User[] = [
-    {
-      User_ID: 1,
-      Username: 'admin',
-      Email: 'admin@scms.gov',
-      Password_Hash: 'admin123', // In production, this would be hashed
-      Role: 'Admin',
-      Full_Name: 'System Administrator',
-      Is_Active: true,
-      created_at: new Date().toISOString()
-    },
-    {
-      User_ID: 2,
-      Username: 'finance',
-      Email: 'finance@scms.gov',
-      Password_Hash: 'finance123',
-      Role: 'Finance Officer',
-      Full_Name: 'Finance Officer',
-      Is_Active: true,
-      created_at: new Date().toISOString()
-    },
-    {
-      User_ID: 3,
-      Username: 'operator',
-      Email: 'operator@scms.gov',
-      Password_Hash: 'operator123',
-      Role: 'Operator',
-      Full_Name: 'Data Entry Operator',
-      Is_Active: true,
-      created_at: new Date().toISOString()
-    }
-  ];
-
-  if (!localStorage.getItem(DB_KEYS.USERS)) {
-    localStorage.setItem(DB_KEYS.USERS, JSON.stringify(defaultUsers));
-  }
+  // Remove credentials left by the original browser-only authentication prototype.
+  localStorage.removeItem('scms_current_user');
+  localStorage.setItem(DB_KEYS.USERS, JSON.stringify([]));
 
   // Initialize empty arrays for other tables
   Object.values(DB_KEYS).forEach(key => {
-    if (!localStorage.getItem(key) && key !== DB_KEYS.USERS && key !== DB_KEYS.CURRENT_USER) {
+    if (!localStorage.getItem(key) && key !== DB_KEYS.USERS) {
       localStorage.setItem(key, JSON.stringify([]));
     }
   });
@@ -210,7 +168,6 @@ class DatabaseService {
 
   constructor() {
     initializeDefaultData();
-    void this.hydrateFromServer();
   }
 
   subscribe(listener: () => void): () => void {
@@ -224,7 +181,7 @@ class DatabaseService {
     this.listeners.forEach(listener => listener());
   }
 
-  private async hydrateFromServer(): Promise<void> {
+  async refreshFromServer(): Promise<void> {
     try {
       const snapshot = await requestJson<DatabaseSnapshot>('/bootstrap');
       localStorage.setItem(DB_KEYS.PARENTS, JSON.stringify((snapshot.parents || []).map(normalizeParent)));
@@ -236,19 +193,16 @@ class DatabaseService {
       this.notify();
     } catch (error) {
       console.warn('Backend hydration skipped:', error);
-      setTimeout(() => {
-        void this.hydrateFromServer();
-      }, 1500);
     }
   }
 
   private syncMutation(path: string, init: RequestInit): void {
     void requestJson(path, init)
-      .then(() => this.hydrateFromServer())
+      .then(() => this.refreshFromServer())
       .catch(error => {
         console.warn(`Backend sync failed for ${path}:`, error);
         setTimeout(() => {
-          void this.hydrateFromServer();
+          void this.refreshFromServer();
         }, 1500);
       });
   }
@@ -274,9 +228,9 @@ class DatabaseService {
   }
 
   // Generic create
-  private create<T>(key: string, item: T, idField: string): T {
+  private create<T>(key: string, item: Partial<T>, idField: string): T {
     const items = this.getAll<T>(key);
-    const newItem = { ...item, [idField]: this.getNextId(key) };
+    const newItem = { ...item, [idField]: this.getNextId(key) } as T;
     items.push(newItem);
     localStorage.setItem(key, JSON.stringify(items));
     this.notify();
@@ -669,7 +623,6 @@ class DatabaseService {
 
   logAudit(tableName: string, recordId: string, action: 'CREATE' | 'UPDATE' | 'DELETE', 
            oldValues?: any, newValues?: any): void {
-    const currentUser = this.getCurrentUser();
     const log: AuditLog = {
       Log_ID: this.getNextId(DB_KEYS.AUDIT_LOG),
       Table_Name: tableName,
@@ -677,48 +630,14 @@ class DatabaseService {
       Action: action,
       Old_Values: oldValues ? JSON.stringify(oldValues) : undefined,
       New_Values: newValues ? JSON.stringify(newValues) : undefined,
-      User_ID: currentUser?.User_ID || 0,
-      Username: currentUser?.Username || 'system',
+      User_ID: 0,
+      Username: 'legacy-client-cache',
       Timestamp: new Date().toISOString()
     };
     
     const logs = this.getAll<AuditLog>(DB_KEYS.AUDIT_LOG);
     logs.push(log);
     localStorage.setItem(DB_KEYS.AUDIT_LOG, JSON.stringify(logs));
-  }
-
-  // ============ AUTHENTICATION ============
-  login(username: string, password: string): User | null {
-    const user = this.getUserByUsername(username);
-    if (user && user.Password_Hash === password && user.Is_Active) {
-      user.Last_Login = new Date().toISOString();
-      this.updateUser(user.User_ID, { Last_Login: user.Last_Login });
-      localStorage.setItem(DB_KEYS.CURRENT_USER, JSON.stringify(user));
-      return user;
-    }
-    return null;
-  }
-
-  logout(): void {
-    localStorage.removeItem(DB_KEYS.CURRENT_USER);
-  }
-
-  getCurrentUser(): User | null {
-    const data = localStorage.getItem(DB_KEYS.CURRENT_USER);
-    return data ? JSON.parse(data) : null;
-  }
-
-  isAuthenticated(): boolean {
-    return !!this.getCurrentUser();
-  }
-
-  hasRole(role: string | string[]): boolean {
-    const user = this.getCurrentUser();
-    if (!user) return false;
-    if (Array.isArray(role)) {
-      return role.includes(user.Role);
-    }
-    return user.Role === role;
   }
 
   // ============ COMPOSITE QUERIES ============
@@ -754,9 +673,9 @@ class DatabaseService {
       
       return {
         ...grant,
-        child,
-        parent,
-        banking
+        child: child || undefined,
+        parent: parent || undefined,
+        banking: banking || undefined
       };
     });
   }

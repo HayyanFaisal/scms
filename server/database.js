@@ -77,6 +77,13 @@ export async function ensureSchema() {
     await addColumnIfMissing(connection, 'Parent_Beneficiary', 'No_of_Disabled_Children', 'INT DEFAULT 0');
     await addColumnIfMissing(connection, 'Parent_Beneficiary', 'Address', 'VARCHAR(255) NULL');
     await addColumnIfMissing(connection, 'Parent_Beneficiary', 'Email', 'VARCHAR(100) NULL');
+    await addColumnIfMissing(connection, 'Parent_Beneficiary', 'Contact_No', 'VARCHAR(50) NULL');
+    await addColumnIfMissing(connection, 'Parent_Beneficiary', 'Password_Hash', 'VARCHAR(255) NULL');
+    await addColumnIfMissing(connection, 'Parent_Beneficiary', 'Status', "VARCHAR(30) NOT NULL DEFAULT 'pending'");
+    await addColumnIfMissing(connection, 'Parent_Beneficiary', 'Origin', "VARCHAR(30) NOT NULL DEFAULT 'admin_created'");
+    await addColumnIfMissing(connection, 'Parent_Beneficiary', 'Default_Password_Changed', 'BOOLEAN NOT NULL DEFAULT FALSE');
+    await addColumnIfMissing(connection, 'Parent_Beneficiary', 'Created_At', 'TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP');
+    await addColumnIfMissing(connection, 'Parent_Beneficiary', 'Approved_At', 'TIMESTAMP NULL');
     await addColumnIfMissing(connection, 'Document_Tracking', 'Total_No_of_Children', 'INT NULL');
     
     // Banking columns
@@ -100,15 +107,22 @@ export async function ensureSchema() {
     await addColumnIfMissing(connection, 'Child_Gadgets', 'Total_Cost', 'DECIMAL(10,2) GENERATED ALWAYS AS (Base_Cost * 1.18) STORED');
     await addColumnIfMissing(connection, 'Child_Gadgets', 'Acquisition_Type', "ENUM('Off the Shelf', 'Customized', 'Reimbursed') NULL");
 
-    // Create authority_passwords table if it doesn't exist
+    // Compatibility guard; the versioned migration owns authority credential evolution.
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS authority_passwords (
         id INT AUTO_INCREMENT PRIMARY KEY,
-        authority VARCHAR(50) UNIQUE NOT NULL,
-        password VARCHAR(255) NOT NULL,
+        authority VARCHAR(100) UNIQUE NOT NULL,
+        password VARCHAR(255) NULL,
+        password_hash VARCHAR(255) NULL,
+        must_change_password BOOLEAN NOT NULL DEFAULT TRUE,
+        temporary_password_expires_at DATETIME(3) NULL,
+        credential_version INT UNSIGNED NOT NULL DEFAULT 1,
+        reset_by BIGINT UNSIGNED NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      )
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        CONSTRAINT fk_authority_password_reset_by
+          FOREIGN KEY (reset_by) REFERENCES scms_users(id) ON DELETE SET NULL
+      ) ENGINE=InnoDB
     `);
   } finally {
     connection.release();

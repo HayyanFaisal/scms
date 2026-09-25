@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react'
 import './RequestsTab.css'
 import ImagePopup from '../ImagePopup'
+import { apiFetch } from '../../services/http'
+import { useAuth } from '../../hooks/useAuth'
 
 const RequestsTab = () => {
+    const { hasPermission } = useAuth()
     const [requests, setRequests] = useState([])
     const [loading, setLoading] = useState(true)
     const [filter, setFilter] = useState('pending')
@@ -12,11 +15,13 @@ const RequestsTab = () => {
     const [popupImage, setPopupImage] = useState(null)
     const [childDocuments, setChildDocuments] = useState({})
     const [parentBanking, setParentBanking] = useState(null)
+    const [categories, setCategories] = useState([])
+    const [approvedCategory, setApprovedCategory] = useState('')
 
     const fetchRequests = async () => {
         setLoading(true)
         try {
-            const res = await fetch('/api/admin/pending-approvals')
+            const res = await apiFetch('/admin/pending-approvals')
             const data = await res.json()
             const filtered = filter === 'all' ? data : data.filter(r => r.status === filter)
             setRequests(filtered)
@@ -33,13 +38,20 @@ const RequestsTab = () => {
         return () => clearInterval(interval)
     }, [filter])
 
+    useEffect(() => {
+        apiFetch('/config/reference-data')
+            .then(response => response.ok ? response.json() : Promise.reject(new Error('Configuration unavailable')))
+            .then(data => setCategories(data.items?.category || []))
+            .catch(error => console.error('Failed to load categories:', error))
+    }, [])
+
     const handleApprove = async (requestId) => {
         setProcessing(true)
         try {
-            const res = await fetch('/api/admin/approve-request', {
+            const res = await apiFetch('/admin/approve-request', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ requestId, action: 'approve', notes: adminNotes })
+                body: JSON.stringify({ requestId, requestType: selectedRequest?.request_type, action: 'approve', notes: adminNotes, approvedCategory })
             })
 
             if (res.ok) {
@@ -58,18 +70,47 @@ const RequestsTab = () => {
     }
 
     const handleReject = async (requestId) => {
+        if (!adminNotes.trim()) {
+            alert('Enter a parent-facing reason before rejecting this request.')
+            return
+        }
         if (!window.confirm('Reject this request?')) return
         setProcessing(true)
         try {
-            await fetch('/api/admin/approve-request', {
+            await apiFetch('/admin/approve-request', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ requestId, action: 'reject', notes: adminNotes || 'Rejected by admin' })
+                body: JSON.stringify({ requestId, requestType: selectedRequest?.request_type, action: 'reject', notes: adminNotes })
             })
             setSelectedRequest(null)
             fetchRequests()
         } catch (err) {
             alert('Network error')
+        } finally {
+            setProcessing(false)
+        }
+    }
+
+    const handleRestrictedDecision = async (requestId, action) => {
+        if (!adminNotes.trim()) {
+            alert('Enter a parent-facing reason for this decision.')
+            return
+        }
+        if (action === 'block' && !window.confirm('Block this parent from further online submissions?')) return
+        setProcessing(true)
+        try {
+            const res = await apiFetch('/admin/approve-request', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ requestId, requestType: selectedRequest?.request_type, action, notes: adminNotes })
+            })
+            const data = await res.json().catch(() => ({}))
+            if (!res.ok) throw new Error(data.message || data.error?.message || 'Review failed')
+            setSelectedRequest(null)
+            setAdminNotes('')
+            fetchRequests()
+        } catch (error) {
+            alert(error instanceof Error ? error.message : 'Review failed')
         } finally {
             setProcessing(false)
         }
@@ -88,7 +129,7 @@ const RequestsTab = () => {
     // Fetch documents when viewing child request
     const fetchChildDocuments = async (childId) => {
         try {
-            const res = await fetch(`/api/admin/child-documents?childId=${childId}`)
+            const res = await apiFetch(`/admin/child-documents?childId=${childId}`)
             const data = await res.json()
             // Ensure we always store an array
             setChildDocuments(prev => ({ ...prev, [childId]: Array.isArray(data) ? data : [] }))
@@ -102,7 +143,7 @@ const RequestsTab = () => {
     // Fetch parent banking details
     const fetchParentBanking = async (pNoONo) => {
         try {
-            const res = await fetch(`/api/banking/parent/${pNoONo}`)
+            const res = await apiFetch(`/banking/parent/${pNoONo}`)
             if (res.ok) {
                 const data = await res.json()
                 setParentBanking(data)
@@ -147,6 +188,8 @@ const RequestsTab = () => {
                             className={`request-item ${req.status} ${filter}`}
                             onClick={() => {
                                 setSelectedRequest(req)
+                                const payload = typeof req.payload === 'string' ? JSON.parse(req.payload) : req.payload
+                                setApprovedCategory(req.request_type === 'child_addition' ? (payload?.approvedCategory || payload?.disabilityCategory || '') : '')
                                 fetchParentBanking(req.p_no_o_no)
                             }}
                         >
@@ -265,7 +308,7 @@ const RequestsTab = () => {
                                                 <div className="detail-item"><label>CNIC / B-Form</label><span>{payload.cnicBformNo}</span></div>
                                                 <div className="detail-item"><label>School</label><span>{payload.school || 'N/A'}</span></div>
                                                 <div className="detail-item full-width"><label>Disease / Disability</label><span>{payload.diseaseDisability || 'None'}</span></div>
-                                                <div className="detail-item"><label>Category</label><span className={`category-${payload.disabilityCategory?.toLowerCase()}`}>{payload.disabilityCategory || 'N/A'}</span></div>
+                                                <div className="detail-item"><label>Parent-selected category</label><span className={`category-${payload.disabilityCategory?.toLowerCase()}`}>{payload.disabilityCategory || 'N/A'}</span></div>
                                             </div>
                                         )
                                     })()}
@@ -320,8 +363,25 @@ const RequestsTab = () => {
                                 </div>
                             )}
 
+                            {selectedRequest.request_type === 'parent_field_change' && (() => {
+                                const payload = typeof selectedRequest.payload === 'string' ? JSON.parse(selectedRequest.payload) : selectedRequest.payload
+                                const currentValues = payload?.currentValues || {}
+                                const proposedValues = payload?.proposedValues || {}
+                                return <div className="child-details"><h4>Requested profile changes</h4><div className="detail-grid">{Object.entries(proposedValues).map(([field, value]) => <div className="detail-item" key={field}><label>{field.replace(/([A-Z])/g, ' $1')}</label><span>{String(currentValues[field] ?? 'Not set')} → <strong>{String(value ?? 'Not set')}</strong></span></div>)}</div>{payload?.parentMessage && <p className="admin-response">Parent message: {payload.parentMessage}</p>}</div>
+                            })()}
+
                             {selectedRequest.status === 'pending' && (
                                 <div className="admin-action">
+                                    {selectedRequest.request_type === 'child_addition' && (
+                                        <div className="detail-item">
+                                            <label>Approved Category</label>
+                                            <select value={approvedCategory} onChange={event => setApprovedCategory(event.target.value)}>
+                                                <option value="">Choose category</option>
+                                                {categories.map(category => <option key={category.id} value={category.name}>{category.name}</option>)}
+                                            </select>
+                                            <small>The parent choice is retained separately even when staff approves a different category.</small>
+                                        </div>
+                                    )}
                                     <label>Admin Notes (optional)</label>
                                     <textarea value={adminNotes} onChange={e => setAdminNotes(e.target.value)} placeholder="Add notes..." rows={3} />
                                 </div>
@@ -338,7 +398,9 @@ const RequestsTab = () => {
                         {selectedRequest.status === 'pending' && (
                             <div className="modal-footer">
                                 <button className="btn-reject" onClick={() => handleReject(selectedRequest.id || selectedRequest.request_id)} disabled={processing}>Reject</button>
-                                <button className="btn-approve" onClick={() => handleApprove(selectedRequest.id || selectedRequest.request_id)} disabled={processing}>
+                                <button className="btn-reject" onClick={() => handleRestrictedDecision(selectedRequest.id || selectedRequest.request_id, 'changes_required')} disabled={processing}>Request Changes</button>
+                                {hasPermission('applications.block') && <button className="btn-reject" onClick={() => handleRestrictedDecision(selectedRequest.id || selectedRequest.request_id, 'block')} disabled={processing}>Block Online Access</button>}
+                                <button className="btn-approve" onClick={() => handleApprove(selectedRequest.id || selectedRequest.request_id)} disabled={processing || (selectedRequest.request_type === 'child_addition' && !approvedCategory)}>
                                     {processing ? 'Processing...' : 'Approve & Add to DB'}
                                 </button>
                             </div>

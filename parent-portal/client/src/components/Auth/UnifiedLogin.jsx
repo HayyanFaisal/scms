@@ -30,7 +30,7 @@ const UnifiedLogin = () => {
     setError('')
 
     try {
-      const response = await fetch('http://127.0.0.1:4000/api/auth/login', {
+      const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -38,13 +38,15 @@ const UnifiedLogin = () => {
         body: JSON.stringify(formData)
       })
 
-      const data = await response.json()
+      const data = await response.json().catch(() => ({}))
 
       if (response.ok) {
         login(data.token, data.user)
         navigate('/dashboard')
       } else {
-        setError(data.error || 'Login failed')
+        setError(data.error || (response.status === 403
+          ? 'Your account is awaiting authorization from PNBA staff.'
+          : 'Login failed'))
       }
     } catch (err) {
       setError('Network error. Please try again.')

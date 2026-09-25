@@ -13,7 +13,9 @@ import {
   User,
   Moon,
   Sun,
-  Inbox
+  Inbox,
+  UserCog,
+  KeyRound
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -25,6 +27,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Login } from '@/sections/Login';
+import { ChangePassword } from '@/sections/ChangePassword';
 import { Dashboard } from '@/sections/Dashboard';
 import { ParentManagement, ParentDetail } from '@/sections/ParentManagement';
 import { ParentForm } from '@/sections/ParentForm';
@@ -32,12 +35,15 @@ import { ChildForm } from '@/sections/ChildForm';
 import { ChildDetail } from '@/sections/ChildDetail';
 import { GrantGadgetManager } from '@/sections/GrantGadgetManager';
 import { ReportsExports } from '@/sections/ReportsExports';
+import { AccessControl } from '@/sections/AccessControl';
+import { SystemConfiguration } from '@/sections/SystemConfiguration';
 import RequestsTab from '@/components/Admin/RequestsTab';
-import AuthorityManagement from '@/components/Admin/AuthorityManagement';
 import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
 import { getAllNotifications, getUnreadCount } from '@/lib/notifications';
 import { db } from '@/services/database';
+import { apiFetch } from '@/services/http';
+import type { Notification } from '@/types';
 import './App.css';
 
 type Page = 
@@ -51,6 +57,7 @@ type Page =
   | 'grants'
   | 'reports'
   | 'settings'
+  | 'access-control'
   | 'requests';
 
 interface NavigationItem {
@@ -60,45 +67,64 @@ interface NavigationItem {
   roles?: string[];
 }
 
+interface PageParams {
+  pNo?: string;
+  childId?: number | string;
+}
+
+interface PendingApproval {
+  status?: string;
+}
+
 const navigation: NavigationItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'parents', label: 'Beneficiaries', icon: Users },
   { id: 'grants', label: 'Grants & Gadgets', icon: Wallet },
   { id: 'reports', label: 'Reports', icon: FileSpreadsheet },
   { id: 'requests', label: 'Requests', icon: Inbox },
-  { id: 'settings', label: 'Authority Settings', icon: Shield }, 
+  { id: 'settings', label: 'Configuration', icon: Shield },
+  { id: 'access-control', label: 'Access Control', icon: UserCog },
 ];
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(() => !!db.getCurrentUser());
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
-  const [pageParams, setPageParams] = useState<any>(null);
+  const [pageParams, setPageParams] = useState<PageParams | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [desktopSidebarPinned, setDesktopSidebarPinned] = useState(true);
   const [desktopSidebarHovered, setDesktopSidebarHovered] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
-  const [notifications, setNotifications] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
-  const { user, logout } = useAuth();
+  const [changingPassword, setChangingPassword] = useState(false);
+  const { user, logout, isAuthenticated, isLoading, hasPermission } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const isDesktopSidebarVisible = desktopSidebarPinned || desktopSidebarHovered;
-  const isFinanceOfficer = user?.Role === 'Finance Officer';
-
   const isPageAllowed = (page: Page) => {
-    if (!isFinanceOfficer) return true;
-    return page === 'grants' || page === 'reports';
+    const requiredPermissions: Partial<Record<Page, string>> = {
+      dashboard: 'dashboard.view',
+      parents: 'parents.read',
+      'parent-new': 'parents.create',
+      'parent-edit': 'parents.update',
+      'parent-detail': 'parents.read',
+      'child-new': 'children.create',
+      'child-detail': 'children.read',
+      grants: 'grants.read',
+      reports: 'reports.read',
+      requests: 'applications.read',
+      'access-control': 'roles.read'
+    };
+    if (page === 'settings') return hasPermission('organizations.read') || hasPermission('rates.read') || hasPermission('settings.read');
+    const required = requiredPermissions[page];
+    return required ? hasPermission(required) : false;
   };
 
   const getDefaultPage = (): Page => {
-    return isFinanceOfficer ? 'grants' : 'dashboard';
+    return navigation.find(item => isPageAllowed(item.id))?.id || 'dashboard';
   };
 
   useEffect(() => {
-    setIsAuthenticated(!!db.getCurrentUser());
-  }, []);
-
-  useEffect(() => {
     if (isAuthenticated) {
+      void db.refreshFromServer();
       const updateNotifications = () => {
         setNotificationCount(getUnreadCount());
         setNotifications(getAllNotifications());
@@ -118,10 +144,11 @@ function App() {
     
     const fetchPendingCount = async () => {
       try {
-        const res = await fetch('/api/admin/pending-approvals');
-        const data = await res.json();
-        setPendingRequestCount(data.filter((r: any) => r.status === 'pending').length);
-      } catch (err) {
+        const res = await apiFetch('/admin/pending-approvals');
+        if (!res.ok) return;
+        const data = await res.json() as PendingApproval[];
+        setPendingRequestCount(data.filter(request => request.status === 'pending').length);
+      } catch {
         // Portal might not be running, silently fail
       }
     };
@@ -132,16 +159,15 @@ function App() {
   }, [isAuthenticated]);
 
   const handleLogin = () => {
-    setIsAuthenticated(true);
-  };
-
-  const handleLogout = () => {
-    logout();
-    setIsAuthenticated(false);
     setCurrentPage(getDefaultPage());
   };
 
-  const navigateTo = (page: Page | string, params?: any) => {
+  const handleLogout = async () => {
+    await logout();
+    setCurrentPage(getDefaultPage());
+  };
+
+  const navigateTo = (page: Page | string, params?: PageParams) => {
     if (!isPageAllowed(page as Page)) {
       setCurrentPage(getDefaultPage());
       setPageParams(null);
@@ -150,20 +176,14 @@ function App() {
     }
 
     setCurrentPage(page as Page);
-    setPageParams(params);
+    setPageParams(params ?? null);
     setSidebarOpen(false);
   };
 
-  useEffect(() => {
-    if (!isAuthenticated || !user) return;
-    if (!isPageAllowed(currentPage)) {
-      setCurrentPage(getDefaultPage());
-      setPageParams(null);
-    }
-  }, [isAuthenticated, user, currentPage, isFinanceOfficer]);
+  const displayedPage = isPageAllowed(currentPage) ? currentPage : getDefaultPage();
 
   const renderPage = () => {
-    switch (currentPage) {
+    switch (displayedPage) {
       case 'dashboard':
         return <Dashboard onNavigate={navigateTo} />;
       case 'parents':
@@ -175,7 +195,7 @@ function App() {
       case 'parent-detail':
         return (
           <ParentDetail 
-            pNo={pageParams?.pNo} 
+            pNo={pageParams?.pNo || ''} 
             onNavigate={navigateTo} 
             onBack={() => navigateTo('parents')} 
           />
@@ -220,14 +240,32 @@ function App() {
       case 'requests':  // <-- ADD THIS
         return <RequestsTab />;
       case 'settings':
-        return <AuthorityManagement />;
+        return <SystemConfiguration />;
+      case 'access-control':
+        return <AccessControl />;
       default:
-        return isFinanceOfficer ? <GrantGadgetManager onNavigate={navigateTo} /> : <Dashboard onNavigate={navigateTo} />;
+        return <Dashboard onNavigate={navigateTo} />;
     }
   };
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen grid place-items-center bg-slate-950 text-slate-100">
+        <p className="text-sm tracking-wide">Checking secure session…</p>
+      </div>
+    );
+  }
+
   if (!isAuthenticated) {
     return <Login onLogin={handleLogin} />;
+  }
+
+  if (user?.Must_Change_Password) {
+    return <ChangePassword />;
+  }
+
+  if (changingPassword) {
+    return <ChangePassword voluntary onComplete={() => setChangingPassword(false)} onCancel={() => setChangingPassword(false)} />;
   }
 
   const filteredNav = navigation.filter(item => isPageAllowed(item.id));
@@ -265,7 +303,7 @@ function App() {
                 <nav className="flex-1 p-4 space-y-1 overflow-auto">
           {filteredNav.map((item) => {
             const Icon = item.icon;
-            const isActive = currentPage === item.id || currentPage.startsWith(item.id + '-');
+            const isActive = displayedPage === item.id || displayedPage.startsWith(item.id + '-');
             const isRequests = item.id === 'requests';
             
             return (
@@ -339,7 +377,7 @@ function App() {
                     <nav className="p-4 space-y-1">
             {filteredNav.map((item) => {
               const Icon = item.icon;
-              const isActive = currentPage === item.id;
+              const isActive = displayedPage === item.id;
               const isRequests = item.id === 'requests';
               
               return (
@@ -380,7 +418,7 @@ function App() {
                 </SheetTrigger>
               </Sheet>
               <h2 className="text-xl sm:text-2xl md:text-3xl font-semibold text-blue-950 dark:text-white">
-                {filteredNav.find(n => n.id === currentPage || currentPage.startsWith(n.id + '-'))?.label || filteredNav[0]?.label || 'Dashboard'}
+                {filteredNav.find(n => n.id === displayedPage || displayedPage.startsWith(n.id + '-'))?.label || filteredNav[0]?.label || 'Dashboard'}
               </h2>
             </div>
 
@@ -446,6 +484,10 @@ function App() {
                   <DropdownMenuItem className="flex flex-col items-start">
                     <span className="font-medium">{user?.Full_Name}</span>
                     <span className="text-xs text-slate-500">{user?.Role}</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setChangingPassword(true)}>
+                    <KeyRound className="w-4 h-4 mr-2" />
+                    Change password
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={handleLogout}>
                     <LogOut className="w-4 h-4 mr-2" />

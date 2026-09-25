@@ -23,6 +23,19 @@ const Dashboard = () => {
     { path: '/dashboard/account', label: 'Account', icon: 'settings' },
   ]
 
+  if (user?.mustChangePassword) {
+    return (
+      <div className="min-h-screen bg-slate-100 p-6 dark:bg-slate-950">
+        <div className="mx-auto max-w-4xl">
+          <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+            This one-time password must be replaced before you can use the portal.
+          </div>
+          <AccountManagement forcePasswordChange />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
       {/* Premium Sidebar */}

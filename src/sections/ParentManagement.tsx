@@ -38,15 +38,18 @@ import {
   Building2,
   User,
   Shield,
-  ArrowRight
+  ArrowRight,
+  KeyRound,
+  Copy
 } from 'lucide-react';
 import { useParents, useParentWithDetails, useScannedDocuments } from '@/hooks/useDatabase';
 import { useAuth } from '@/hooks/useAuth';
 import { formatChildDisplayName } from '@/lib/utils';
-import type { ParentBeneficiary, ServiceStatus } from '@/types';
+import { apiFetch, readApiError } from '@/services/http';
+import type { DependentChildren, ParentBeneficiary, ServiceStatus } from '@/types';
 
 interface ParentManagementProps {
-  onNavigate: (page: string, params?: any) => void;
+  onNavigate: (page: string, params?: Record<string, string | number | undefined>) => void;
 }
 
 const statusColors: Record<ServiceStatus, string> = {
@@ -228,16 +231,37 @@ export function ParentManagement({ onNavigate }: ParentManagementProps) {
 // Parent Detail View Component
 interface ParentDetailProps {
   pNo: string;
-  onNavigate: (page: string, params?: any) => void;
+  onNavigate: (page: string, params?: Record<string, string | number | undefined>) => void;
   onBack: () => void;
 }
 
 export function ParentDetail({ pNo, onNavigate, onBack }: ParentDetailProps) {
-  const { canUpdate } = useAuth();
+  const { canUpdate, hasPermission } = useAuth();
   const { parent } = useParentWithDetails(pNo);
   const { documents: scannedDocuments, loading: scannedDocsLoading, getFileUrl } = useScannedDocuments(pNo);
   const [activeTab, setActiveTab] = useState('profile');
   const [previewDoc, setPreviewDoc] = useState<{ name: string; url: string } | null>(null);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetError, setResetError] = useState('');
+  const [issuedCredential, setIssuedCredential] = useState<{ loginId: string; oneTimePassword: string; expiresAt: string } | null>(null);
+
+  const issueOneTimePassword = async () => {
+    setResetBusy(true);
+    setResetError('');
+    try {
+      const response = await apiFetch('/admin/reset-parent-password', {
+        method: 'POST',
+        body: JSON.stringify({ pNoONo: pNo })
+      });
+      if (!response.ok) throw new Error(await readApiError(response, 'Unable to issue a one-time password.'));
+      setIssuedCredential(await response.json());
+    } catch (error) {
+      setResetError(error instanceof Error ? error.message : 'Unable to issue a one-time password.');
+    } finally {
+      setResetBusy(false);
+    }
+  };
 
   if (!parent) {
     return (
@@ -258,11 +282,18 @@ export function ParentDetail({ pNo, onNavigate, onBack }: ParentDetailProps) {
         <div className="flex-1">
           <h1 className="text-2xl font-bold text-slate-900">{parent.Parent_Name}</h1>
           <p className="text-slate-500">{parent.P_No_O_No} • {parent.Rank_Rate}</p>
+          {parent.Record_State && parent.Record_State !== 'complete' && <Badge variant="outline" className="mt-2 border-amber-300 bg-amber-50 text-amber-800">{parent.Record_State.replace('_', ' ')}</Badge>}
         </div>
         {canUpdate('parents') && (
           <Button onClick={() => onNavigate('parent-edit', { pNo })}>
             <Edit className="w-4 h-4 mr-2" />
             Edit
+          </Button>
+        )}
+        {hasPermission('accounts.issue_one_time_password') && (
+          <Button variant="outline" onClick={() => { setIssuedCredential(null); setResetError(''); setResetOpen(true); }}>
+            <KeyRound className="w-4 h-4 mr-2" />
+            Issue one-time password
           </Button>
         )}
       </div>
@@ -348,7 +379,7 @@ export function ParentDetail({ pNo, onNavigate, onBack }: ParentDetailProps) {
                 <p className="text-center py-8 text-slate-500">No children registered</p>
               ) : (
                 <div className="space-y-4">
-                  {parent.children?.map((child: any) => (
+                  {parent.children?.map((child: DependentChildren) => (
                     <div 
                       key={child.Child_ID} 
                       className="p-4 border rounded-lg hover:bg-slate-50 cursor-pointer"
@@ -517,6 +548,32 @@ export function ParentDetail({ pNo, onNavigate, onBack }: ParentDetailProps) {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={resetOpen} onOpenChange={open => { setResetOpen(open); if (!open) setIssuedCredential(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Issue parent one-time password</DialogTitle>
+            <DialogDescription>
+              This invalidates existing parent portal sessions. The new password expires in 24 hours and must be replaced at first login.
+            </DialogDescription>
+          </DialogHeader>
+          {resetError && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700">{resetError}</p>}
+          {issuedCredential ? (
+            <div className="space-y-3 rounded-lg border bg-slate-50 p-4">
+              <p className="text-sm font-medium">Copy this now. It will not be shown again.</p>
+              <div><p className="text-xs text-slate-500">Login ID</p><p className="font-mono">{issuedCredential.loginId}</p></div>
+              <div><p className="text-xs text-slate-500">One-time password</p><div className="flex items-center gap-2"><code className="flex-1 rounded bg-white p-2 text-sm">{issuedCredential.oneTimePassword}</code><Button size="icon" variant="outline" onClick={() => void navigator.clipboard.writeText(issuedCredential.oneTimePassword)} title="Copy password"><Copy className="h-4 w-4" /></Button></div></div>
+              <p className="text-xs text-slate-500">Expires {new Date(issuedCredential.expiresAt).toLocaleString()}</p>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-600">Issue a credential for {parent.Parent_Name} ({pNo})?</p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResetOpen(false)}>{issuedCredential ? 'Done' : 'Cancel'}</Button>
+            {!issuedCredential && <Button disabled={resetBusy} onClick={() => void issueOneTimePassword()}><KeyRound className="mr-2 h-4 w-4" />{resetBusy ? 'Issuing…' : 'Issue password'}</Button>}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!previewDoc} onOpenChange={(open) => { if (!open) setPreviewDoc(null); }}>
         <DialogContent className="max-w-5xl p-4">

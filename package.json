@@ -8,8 +8,10 @@
     "dev:client": "vite",
     "server": "node server/index.js",
     "start": "node server/index.js",
+    "bootstrap:director": "node scripts/bootstrap-director.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test": "node --test server/**/*.test.js",
     "preview": "vite preview"
   },
   "dependencies": {

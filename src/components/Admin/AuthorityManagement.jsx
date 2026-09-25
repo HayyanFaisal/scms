@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react'
 import './AuthorityManagement.css'
+import { apiFetch } from '../../services/http'
+import { useAuth } from '../../hooks/useAuth'
 
 const AuthorityManagement = () => {
+    const { hasPermission } = useAuth()
+    const canResetAuthorityPassword = hasPermission('authority_accounts.reset_password')
     const [authorities, setAuthorities] = useState([])
     const [selectedAuthority, setSelectedAuthority] = useState('')
-    const [currentPassword, setCurrentPassword] = useState('')
     const [newPassword, setNewPassword] = useState('')
     const [confirmPassword, setConfirmPassword] = useState('')
     const [loading, setLoading] = useState(false)
@@ -17,8 +20,9 @@ const AuthorityManagement = () => {
 
     const fetchAuthorities = async () => {
         try {
-            const response = await fetch('/api/auth/authorities')
+            const response = await apiFetch('/auth/authorities')
             const data = await response.json()
+            if (!response.ok) throw new Error(data?.error?.message || data?.message || 'Failed to fetch authorities')
             setAuthorities(data)
         } catch (error) {
             setError('Failed to fetch authorities')
@@ -27,6 +31,7 @@ const AuthorityManagement = () => {
 
     const handlePasswordUpdate = async (e) => {
         e.preventDefault()
+        if (!canResetAuthorityPassword) return
         setLoading(true)
         setError('')
         setMessage('')
@@ -37,21 +42,20 @@ const AuthorityManagement = () => {
             return
         }
 
-        if (newPassword.length < 6) {
-            setError('Password must be at least 6 characters long')
+        if (newPassword.length < 12) {
+            setError('Temporary password must be at least 12 characters long')
             setLoading(false)
             return
         }
 
         try {
-            const response = await fetch('/api/auth/update-authority-password', {
+            const response = await apiFetch('/auth/reset-authority-password', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
                     authority: selectedAuthority,
-                    currentPassword,
                     newPassword
                 })
             })
@@ -59,13 +63,12 @@ const AuthorityManagement = () => {
             const data = await response.json()
 
             if (response.ok) {
-                setMessage('Password updated successfully!')
-                setCurrentPassword('')
+                setMessage('Temporary authority password issued. It expires in 24 hours and must be changed after sign-in.')
                 setNewPassword('')
                 setConfirmPassword('')
                 fetchAuthorities() // Refresh the list
             } else {
-                setError(data.message || 'Failed to update password')
+                setError(data?.error?.message || data.message || 'Failed to reset password')
             }
         } catch (error) {
             setError('Network error. Please try again.')
@@ -80,7 +83,7 @@ const AuthorityManagement = () => {
         <div className="authority-management">
             <div className="management-header">
                 <h1>Authority Management</h1>
-                <p>Manage authority passwords and access credentials</p>
+                <p>Issue temporary authority credentials without needing the previous password</p>
             </div>
 
             <div className="management-content">
@@ -91,16 +94,17 @@ const AuthorityManagement = () => {
                             <div key={auth.value} className="authority-card">
                                 <h3>{auth.label}</h3>
                                 <div className="auth-status">
-                                    <span className={`password-status ${auth.hasCustomPassword ? 'custom' : 'default'}`}>
-                                        {auth.hasCustomPassword ? 'Custom Password Set' : 'Using Default Password'}
+                                    <span className={`password-status ${auth.hasCredential ? 'custom' : 'default'}`}>
+                                        {!auth.hasCredential ? 'Credential Not Set' : auth.mustChangePassword ? 'Temporary Password Active' : 'Credential Active'}
                                     </span>
                                 </div>
                                 <div className="auth-actions">
                                     <button 
                                         onClick={() => setSelectedAuthority(auth.value)}
                                         className="manage-btn"
+                                        disabled={!canResetAuthorityPassword}
                                     >
-                                        Manage Password
+                                        {canResetAuthorityPassword ? 'Reset Password' : 'View Only'}
                                     </button>
                                 </div>
                             </div>
@@ -109,7 +113,9 @@ const AuthorityManagement = () => {
                 </div>
 
                 <div className="password-update-form">
-                    <h2>Update Authority Password</h2>
+                    <h2>Reset Authority Password</h2>
+                    <p className="form-help">This is an administrative override. The authority will be required to choose a permanent password after signing in.</p>
+                    {!canResetAuthorityPassword && <div className="selected-info"><p>Your role can view authorities but does not have the <code>authority_accounts.reset_password</code> permission.</p></div>}
                     <form onSubmit={handlePasswordUpdate}>
                         <div className="form-group">
                             <label htmlFor="authority">Select Authority</label>
@@ -117,6 +123,7 @@ const AuthorityManagement = () => {
                                 id="authority"
                                 value={selectedAuthority}
                                 onChange={(e) => setSelectedAuthority(e.target.value)}
+                                disabled={!canResetAuthorityPassword}
                                 required
                             >
                                 <option value="">Choose authority...</option>
@@ -130,34 +137,23 @@ const AuthorityManagement = () => {
 
                         {selectedAuthData && (
                             <div className="selected-info">
-                                <p>Current status: <span className={`status ${selectedAuthData.hasCustomPassword ? 'custom' : 'default'}`}>
-                                    {selectedAuthData.hasCustomPassword ? 'Custom password set' : 'Using default password (12345678)'}
+                                <p>Current status: <span className={`status ${selectedAuthData.hasCredential ? 'custom' : 'default'}`}>
+                                    {!selectedAuthData.hasCredential ? 'No credential issued' : selectedAuthData.mustChangePassword ? 'Awaiting password change' : 'Active credential'}
                                 </span></p>
                             </div>
                         )}
 
                         <div className="form-group">
-                            <label htmlFor="currentPassword">Current Password</label>
-                            <input
-                                type="password"
-                                id="currentPassword"
-                                value={currentPassword}
-                                onChange={(e) => setCurrentPassword(e.target.value)}
-                                required
-                                placeholder="Enter current password"
-                            />
-                        </div>
-
-                        <div className="form-group">
-                            <label htmlFor="newPassword">New Password</label>
+                            <label htmlFor="newPassword">Temporary Password</label>
                             <input
                                 type="password"
                                 id="newPassword"
                                 value={newPassword}
                                 onChange={(e) => setNewPassword(e.target.value)}
                                 required
-                                placeholder="Enter new password (min 6 characters)"
-                                minLength={6}
+                                placeholder="Enter temporary password (minimum 12 characters)"
+                                minLength={12}
+                                disabled={!canResetAuthorityPassword}
                             />
                         </div>
 
@@ -170,7 +166,8 @@ const AuthorityManagement = () => {
                                 onChange={(e) => setConfirmPassword(e.target.value)}
                                 required
                                 placeholder="Confirm new password"
-                                minLength={6}
+                                minLength={12}
+                                disabled={!canResetAuthorityPassword}
                             />
                         </div>
 
@@ -179,10 +176,10 @@ const AuthorityManagement = () => {
 
                         <button
                             type="submit"
-                            disabled={loading || !selectedAuthority || !currentPassword || !newPassword || !confirmPassword}
+                            disabled={!canResetAuthorityPassword || loading || !selectedAuthority || !newPassword || !confirmPassword}
                             className="update-btn"
                         >
-                            {loading ? 'Updating...' : 'Update Password'}
+                            {loading ? 'Resetting...' : 'Issue Temporary Password'}
                         </button>
                     </form>
                 </div>

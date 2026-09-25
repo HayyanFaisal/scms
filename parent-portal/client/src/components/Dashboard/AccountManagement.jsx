@@ -1,14 +1,27 @@
 import { useState, useEffect } from 'react'
+import { useAuth } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
 
-const AccountManagement = () => {
+const AccountManagement = ({ forcePasswordChange = false }) => {
+  const { token, logout } = useAuth()
   const { darkMode } = useTheme()
-  const [activeTab, setActiveTab] = useState('profile')
+  const [activeTab, setActiveTab] = useState(forcePasswordChange ? 'security' : 'profile')
   const [profileData, setProfileData] = useState({
+    parentName: '',
+    cnic: '',
+    rankRate: '',
+    unit: '',
+    adminAuthority: '',
+    serviceStatus: '',
     email: '',
     contactNo: '',
     address: ''
   })
+  const [profileConfiguration, setProfileConfiguration] = useState({ policies: [], references: {} })
+  const [changeRequests, setChangeRequests] = useState([])
+  const [parentMessage, setParentMessage] = useState('')
+  const [recordState, setRecordState] = useState('complete')
+  const [missingFields, setMissingFields] = useState([])
   const [passwordData, setPasswordData] = useState({
     currentPassword: '',
     newPassword: '',
@@ -21,28 +34,38 @@ const AccountManagement = () => {
   useEffect(() => {
     const loadProfile = async () => {
       try {
-        const token = localStorage.getItem('token')
         if (!token) return
 
-        const res = await fetch('/api/profile', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        })
+        const [res, configRes] = await Promise.all([
+          fetch('/api/profile', { headers: { 'Authorization': `Bearer ${token}` } }),
+          fetch('/api/profile/configuration', { headers: { 'Authorization': `Bearer ${token}` } })
+        ])
         
         if (res.ok) {
           const data = await res.json()
           setProfileData({
+            parentName: data.parent_name || '',
+            cnic: data.cnic || '',
+            rankRate: data.rank_rate || '',
+            unit: data.unit || '',
+            adminAuthority: data.admin_authority || '',
+            serviceStatus: data.service_status || '',
             email: data.email || '',
-            contactNo: data.contactNo || '',
+            contactNo: data.contactNo || data.contact_no || '',
             address: data.address || ''
           })
+          setChangeRequests(data.change_requests || [])
+          setRecordState(data.record_state || 'complete')
+          setMissingFields(data.missing_fields || [])
         }
+        if (configRes.ok) setProfileConfiguration(await configRes.json())
       } catch (error) {
         console.error('Failed to load profile:', error)
       }
     }
 
     loadProfile()
-  }, [])
+  }, [token])
 
   const handleProfileUpdate = async (e) => {
     e.preventDefault()
@@ -50,19 +73,19 @@ const AccountManagement = () => {
     setMessage('')
 
     try {
-      const token = localStorage.getItem('token')
       const res = await fetch('/api/profile/update', {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(profileData)
+        body: JSON.stringify({ ...profileData, parentMessage })
       })
 
       const data = await res.json()
       if (res.ok) {
-        setMessage('Profile updated successfully!')
+        setMessage(data.message || 'Profile updated successfully!')
+        setParentMessage('')
         setTimeout(() => setMessage(''), 3000)
       } else {
         setMessage(data.error || 'Failed to update profile')
@@ -91,7 +114,6 @@ const AccountManagement = () => {
     setMessage('')
 
     try {
-      const token = localStorage.getItem('token')
       const res = await fetch('/api/auth/change-password', {
         method: 'POST',
         headers: {
@@ -106,9 +128,9 @@ const AccountManagement = () => {
 
       const data = await res.json()
       if (res.ok) {
-        setMessage('Password changed successfully!')
+        setMessage('Password changed. Please sign in again.')
         setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' })
-        setTimeout(() => setMessage(''), 3000)
+        setTimeout(() => logout(), 1200)
       } else {
         setMessage(data.error || 'Failed to change password')
       }
@@ -118,6 +140,13 @@ const AccountManagement = () => {
       setLoading(false)
     }
   }
+
+  const policyFor = (fieldCode) => profileConfiguration.policies.find(policy => policy.fieldCode === fieldCode)
+  const policyLabel = (fieldCode) => {
+    const mode = policyFor(fieldCode)?.updateMode
+    return mode === 'approval' ? 'Requires staff approval' : mode === 'locked' ? 'Locked' : 'Updates immediately'
+  }
+  const referenceOptions = (type) => profileConfiguration.references?.[type] || []
 
   return (
     <div className="min-h-screen bg-surface-low dark:bg-dark-surface p-6">
@@ -133,7 +162,7 @@ const AccountManagement = () => {
 
           {/* Tabs */}
           <div className="flex border-b border-surface-high dark:border-dark-surface-high">
-            <button
+            {!forcePasswordChange && <button
               onClick={() => setActiveTab('profile')}
               className={`flex-1 px-6 py-4 text-sm font-medium transition-colors ${
                 activeTab === 'profile'
@@ -142,10 +171,10 @@ const AccountManagement = () => {
               }`}
             >
               Profile
-            </button>
+            </button>}
             <button
               onClick={() => setActiveTab('security')}
-              className={`flex-1 px-6 py-4 text-sm font-medium transition-colors ${
+              className={`${forcePasswordChange ? 'w-full' : 'flex-1'} px-6 py-4 text-sm font-medium transition-colors ${
                 activeTab === 'security'
                   ? 'text-primary dark:text-dark-primary border-b-2 border-primary dark:border-dark-primary'
                   : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 border-b-2 border-transparent'
@@ -159,7 +188,7 @@ const AccountManagement = () => {
           <div className="p-8">
             {message && (
               <div className={`mb-6 p-4 rounded-lg ${
-                message.includes('successfully') 
+                message.startsWith('Password changed') || message.includes('successfully')
                   ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400' 
                   : 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400'
               }`}>
@@ -167,10 +196,44 @@ const AccountManagement = () => {
               </div>
             )}
 
-            {activeTab === 'profile' && (
+            {!forcePasswordChange && recordState !== 'complete' && (
+              <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+                <strong>Profile {recordState.replace('_', ' ')}</strong>
+                {missingFields.length > 0 && <p className="mt-1 text-sm">Missing: {missingFields.join(', ')}</p>}
+              </div>
+            )}
+
+          {!forcePasswordChange && activeTab === 'profile' && (
               <form onSubmit={handleProfileUpdate} className="space-y-6">
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Profile Information</h3>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Full Name <span className="text-xs font-normal text-gray-500">({policyLabel('parentName')})</span></label>
+                      <input type="text" value={profileData.parentName} disabled={policyFor('parentName')?.updateMode === 'locked'} onChange={e => setProfileData({...profileData, parentName: e.target.value})} className="w-full px-4 py-2 border border-surface-high dark:border-dark-surface-high rounded-lg bg-white dark:bg-dark-surface text-gray-900 dark:text-gray-100 disabled:opacity-60" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">CNIC <span className="text-xs font-normal text-gray-500">({policyLabel('cnic')})</span></label>
+                      <input type="text" value={profileData.cnic} disabled={policyFor('cnic')?.updateMode === 'locked'} onChange={e => setProfileData({...profileData, cnic: e.target.value})} className="w-full px-4 py-2 border border-surface-high dark:border-dark-surface-high rounded-lg bg-white dark:bg-dark-surface text-gray-900 dark:text-gray-100 disabled:opacity-60" />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Rank / Rate <span className="text-xs font-normal text-gray-500">({policyLabel('rankRate')})</span></label>
+                      <select value={profileData.rankRate} disabled={policyFor('rankRate')?.updateMode === 'locked'} onChange={e => setProfileData({...profileData, rankRate: e.target.value})} className="w-full px-4 py-2 border border-surface-high dark:border-dark-surface-high rounded-lg bg-white dark:bg-dark-surface text-gray-900 dark:text-gray-100 disabled:opacity-60"><option value="">Select rank/rate</option>{referenceOptions('rank').map(item => <option key={item.code} value={item.name}>{item.name}</option>)}</select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Unit <span className="text-xs font-normal text-gray-500">({policyLabel('unit')})</span></label>
+                      <select value={profileData.unit} disabled={policyFor('unit')?.updateMode === 'locked'} onChange={e => setProfileData({...profileData, unit: e.target.value})} className="w-full px-4 py-2 border border-surface-high dark:border-dark-surface-high rounded-lg bg-white dark:bg-dark-surface text-gray-900 dark:text-gray-100 disabled:opacity-60"><option value="">Select unit</option>{referenceOptions('unit').map(item => <option key={item.code} value={item.name}>{item.name}</option>)}</select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Administrative Authority <span className="text-xs font-normal text-gray-500">({policyLabel('adminAuthority')})</span></label>
+                      <select value={profileData.adminAuthority} disabled={policyFor('adminAuthority')?.updateMode === 'locked'} onChange={e => setProfileData({...profileData, adminAuthority: e.target.value})} className="w-full px-4 py-2 border border-surface-high dark:border-dark-surface-high rounded-lg bg-white dark:bg-dark-surface text-gray-900 dark:text-gray-100 disabled:opacity-60"><option value="">No authority</option>{referenceOptions('authority').map(item => <option key={item.code} value={item.name}>{item.name}</option>)}</select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Service Status <span className="text-xs font-normal text-gray-500">({policyLabel('serviceStatus')})</span></label>
+                      <select value={profileData.serviceStatus} disabled={policyFor('serviceStatus')?.updateMode === 'locked'} onChange={e => setProfileData({...profileData, serviceStatus: e.target.value})} className="w-full px-4 py-2 border border-surface-high dark:border-dark-surface-high rounded-lg bg-white dark:bg-dark-surface text-gray-900 dark:text-gray-100 disabled:opacity-60"><option value="">Select status</option>{referenceOptions('service_status').map(item => <option key={item.code} value={item.name}>{item.name}</option>)}</select>
+                    </div>
+                  </div>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-2">
@@ -212,6 +275,11 @@ const AccountManagement = () => {
                       placeholder="123 Main Street, Apt 4B, City, State 12345"
                     />
                   </div>
+
+                  <div className="mt-6 space-y-2">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Message for reviewing staff</label>
+                    <textarea value={parentMessage} onChange={e => setParentMessage(e.target.value)} rows={2} maxLength={1000} className="w-full px-4 py-2 border border-surface-high dark:border-dark-surface-high rounded-lg bg-white dark:bg-dark-surface text-gray-900 dark:text-gray-100" placeholder="Explain a transfer, promotion, corrected CNIC, or other controlled change" />
+                  </div>
                 </div>
 
                 <button
@@ -222,6 +290,13 @@ const AccountManagement = () => {
                   {loading ? 'Updating...' : 'Update Profile'}
                 </button>
               </form>
+            )}
+
+            {!forcePasswordChange && activeTab === 'profile' && changeRequests.length > 0 && (
+              <div className="mt-8 border-t border-surface-high pt-6 dark:border-dark-surface-high">
+                <h3 className="mb-3 font-semibold text-gray-900 dark:text-white">Recent change requests</h3>
+                <div className="space-y-3">{changeRequests.map(request => <div key={request.id} className="rounded-lg border border-surface-high p-3 text-sm dark:border-dark-surface-high"><div className="flex justify-between gap-3"><span className="font-medium">Request #{request.id}</span><span className="capitalize">{request.status.replace('_', ' ')}</span></div>{request.reviewReason && <p className="mt-2 text-gray-600 dark:text-gray-400">{request.reviewReason}</p>}</div>)}</div>
+              </div>
             )}
 
             {activeTab === 'security' && (

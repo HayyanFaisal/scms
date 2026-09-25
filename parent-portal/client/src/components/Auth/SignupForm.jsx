@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTheme } from '../../context/ThemeContext'
 import { formatCNIC, handleCNICChange, getCleanCNIC, validateCNIC } from '../../utils/cnicValidator'
@@ -21,6 +21,25 @@ const SignupForm = () => {
   const [submitted, setSubmitted] = useState(false)
   const [loginId, setLoginId] = useState(null)
   const [cnicError, setCnicError] = useState('')
+  const [configuration, setConfiguration] = useState(null)
+  const [configurationError, setConfigurationError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    fetch('/api/config/reference-data')
+      .then(async response => {
+        if (!response.ok) throw new Error('Registration choices are unavailable')
+        return response.json()
+      })
+      .then(data => {
+        if (!active) return
+        setConfiguration(data.items)
+        const defaultStatus = data.items?.service_status?.find(item => item.name === 'Serving')?.name || data.items?.service_status?.[0]?.name || ''
+        setFormData(current => ({ ...current, serviceStatus: defaultStatus }))
+      })
+      .catch(() => { if (active) setConfigurationError('Registration configuration could not be loaded. Please contact the office.') })
+    return () => { active = false }
+  }, [])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -146,21 +165,25 @@ const SignupForm = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">Rank / Rate</label>
-              <input
-                type="text"
+              <select
                 value={formData.rankRate}
                 onChange={e => setFormData({...formData, rankRate: e.target.value})}
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
+              >
+                <option value="">Select rank/rate (optional)</option>
+                {configuration?.rank?.map(item => <option key={item.code} value={item.name}>{item.name}</option>)}
+              </select>
             </div>
             <div className="space-y-2">
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">Unit</label>
-              <input
-                type="text"
+              <select
                 value={formData.unit}
                 onChange={e => setFormData({...formData, unit: e.target.value})}
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
+              >
+                <option value="">Select unit (optional)</option>
+                {configuration?.unit?.map(item => <option key={item.code} value={item.name}>{item.name}</option>)}
+              </select>
             </div>
           </div>
 
@@ -192,9 +215,7 @@ const SignupForm = () => {
                 onChange={e => setFormData({...formData, serviceStatus: e.target.value})}
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
-                <option value="Serving">Serving</option>
-                <option value="Retired">Retired</option>
-                <option value="Expired">Expired</option>
+                {configuration?.service_status?.map(item => <option key={item.code} value={item.name}>{item.name}</option>)}
               </select>
             </div>
             <div className="space-y-2">
@@ -204,15 +225,8 @@ const SignupForm = () => {
                 onChange={e => setFormData({...formData, adminAuthority: e.target.value})}
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
-                <option value="HQ COMNOR">HQ COMNOR</option>
-                <option value="HQ COMKAR">HQ COMKAR</option>
-                <option value="HQ COMCEP">HQ COMCEP</option>
-                <option value="HQ PMSA">HQ COMLOG</option>
-                <option value="HQ COMPAK">HQ COMPAK</option>
-                <option value="HQ COMCOAST">HQ COMCOAST</option>
-                <option value="HQ FOST">HQ FOST</option>
-                <option value="HQ NSFC">HQ NSFC</option>
-                <option value="HQ PMSA">HQ PMSA</option>
+                <option value="">No authority / not known</option>
+                {configuration?.authority?.map(item => <option key={item.code} value={item.name}>{item.name}</option>)}
               </select>  
             </div>
           </div>
@@ -241,9 +255,12 @@ const SignupForm = () => {
             </div>
           </div>
 
+          {configurationError && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">{configurationError}</p>}
+
           <button 
             type="submit" 
-            className="w-full px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors"
+            disabled={!configuration || !!configurationError}
+            className="w-full px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 text-white font-semibold rounded-lg transition-colors"
           >
             Submit for Approval
           </button>

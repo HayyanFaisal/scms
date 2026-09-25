@@ -24,8 +24,7 @@ import {
   Trash2,
   Filter
 } from 'lucide-react';
-import { useGrantsWithDetails, useAuditLogs, useUsers } from '@/hooks/useDatabase';
-import { useAuth } from '@/hooks/useAuth';
+import { useGrantsWithDetails, useAuditLogs } from '@/hooks/useDatabase';
 import { formatChildDisplayName } from '@/lib/utils';
 import { formatCurrency, formatDate } from '@/lib/validation';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -34,9 +33,8 @@ interface ReportsExportsProps {
   onNavigate: (page: string, params?: any) => void;
 }
 
-export function ReportsExports({ onNavigate }: ReportsExportsProps) {
+export function ReportsExports({ onNavigate: _onNavigate }: ReportsExportsProps) {
   const [activeTab, setActiveTab] = useState('payroll');
-  const { canRead } = useAuth();
 
   return (
     <div className="space-y-6">
@@ -73,7 +71,7 @@ export function ReportsExports({ onNavigate }: ReportsExportsProps) {
 }
 
 function PayrollExport() {
-  const { grants, refresh } = useGrantsWithDetails();
+  const { grants } = useGrantsWithDetails();
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'expiring'>('all');
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'A' | 'B' | 'C'>('all');
 

@@ -1,12 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
 
 const DOCUMENT_TYPES = [
-    { key: 'assessment_performa', label: 'Assessment Performa', desc: 'Disability evaluation category A/B/C by Specialist Doctor' },
     { key: 'application_form', label: 'Application Form', desc: 'Father + Child + Bank details + PN Service Card / Authorization + CNIC' },
-    { key: 'disability_certificate', label: 'Disability Certificate', desc: 'Issued by NCRDP / PCRDP' },
     { key: 'identity_proof', label: 'Identity Proof', desc: 'Child CNIC / B-Form' }
 ];
 
@@ -32,12 +30,28 @@ const AddChildForm = () => {
     const [uploading, setUploading] = useState({})
     const [errors, setErrors] = useState({})
     const [loading, setLoading] = useState(false)
+    const [configuration, setConfiguration] = useState(null)
+    const [configurationError, setConfigurationError] = useState('')
+
+    useEffect(() => {
+        let active = true
+        fetch('/api/config/reference-data')
+            .then(async response => {
+                if (!response.ok) throw new Error('Configuration unavailable')
+                return response.json()
+            })
+            .then(data => { if (active) setConfiguration(data.items) })
+            .catch(() => { if (active) setConfigurationError('Configured categories and schools could not be loaded.') })
+        return () => { active = false }
+    }, [])
 
     const validateStep1 = () => {
         const errs = {}
         if (!formData.childName.trim()) errs.childName = 'Required'
         if (!formData.cnicBformNo.trim()) errs.cnicBformNo = 'Required'
         if (!formData.age || formData.age <= 0) errs.age = 'Invalid age'
+        if (!formData.disabilityCategory) errs.disabilityCategory = 'Required'
+        if (!formData.school) errs.school = 'Required'
         setErrors(errs)
         return Object.keys(errs).length === 0
     }
@@ -138,8 +152,8 @@ const AddChildForm = () => {
 
     const handleFinish = () => {
         const uploadedCount = Object.keys(documents).length
-        if (uploadedCount < 4) {
-            if (!window.confirm(`Only ${uploadedCount}/4 documents uploaded. Submit anyway?`)) return
+        if (uploadedCount < DOCUMENT_TYPES.length) {
+            if (!window.confirm(`Only ${uploadedCount}/${DOCUMENT_TYPES.length} documents uploaded. Submit anyway?`)) return
         }
         alert('Child registration submitted for approval!')
         navigate('/dashboard/children')
@@ -260,12 +274,11 @@ const AddChildForm = () => {
                                         className="w-full pl-12 pr-4 py-3 border border-slate-200 dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-700/50 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all appearance-none"
                                     >
                                         <option value="">Select Category</option>
-                                        <option value="A">Category A (Severe)</option>
-                                        <option value="B">Category B (Moderate)</option>
-                                        <option value="C">Category C (Mild)</option>
+                                        {configuration?.category?.map(item => <option key={item.code} value={item.name}>Category {item.name}</option>)}
                                     </select>
                                     <span className="material-symbols-outlined absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">expand_more</span>
                                 </div>
+                                {errors.disabilityCategory && <p className="text-sm text-rose-600 dark:text-rose-400">{errors.disabilityCategory}</p>}
                             </div>
                             
                             <div className="space-y-2">
@@ -274,35 +287,38 @@ const AddChildForm = () => {
                                 </label>
                                 <div className="relative">
                                     <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">school</span>
-                                    <input
-                                        type="text"
+                                    <select
                                         value={formData.school}
                                         onChange={e => setFormData({...formData, school: e.target.value})}
-                                        placeholder="Enter school name"
                                         className="w-full pl-12 pr-4 py-3 border border-slate-200 dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-700/50 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                                    />
+                                    >
+                                        <option value="">Select school</option>
+                                        {configuration?.school?.map(item => <option key={item.code} value={item.name}>{item.name}</option>)}
+                                    </select>
                                 </div>
+                                {errors.school && <p className="text-sm text-rose-600 dark:text-rose-400">{errors.school}</p>}
                             </div>
                         </div>
 
                         <div className="space-y-2">
                             <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300">
-                                Disease / Disability Description
+                                Additional Notes (optional)
                             </label>
                             <textarea
                                 value={formData.diseaseDisability}
                                 onChange={e => setFormData({...formData, diseaseDisability: e.target.value})}
-                                placeholder="Provide details about the disability or medical condition..."
+                                placeholder="Add any non-medical administrative notes..."
                                 rows={4}
                                 className="w-full px-4 py-3 border border-slate-200 dark:border-slate-600 rounded-xl bg-slate-50 dark:bg-slate-700/50 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all resize-none"
                             />
                         </div>
 
                         <div className="pt-4 border-t border-slate-100 dark:border-slate-700/50">
+                            {configurationError && <p className="mb-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">{configurationError}</p>}
                             <button 
                                 type="submit" 
                                 className="w-full flex items-center justify-center gap-2 px-6 py-4 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold rounded-xl transition-all shadow-lg shadow-blue-600/25 hover:shadow-xl hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0" 
-                                disabled={loading}
+                                disabled={loading || !configuration || !!configurationError}
                             >
                                 {loading ? (
                                     <>

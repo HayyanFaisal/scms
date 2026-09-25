@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import './AuthorityLogin.css'
 
 const AuthorityLogin = () => {
@@ -6,18 +6,21 @@ const AuthorityLogin = () => {
     const [password, setPassword] = useState('')
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')
+    const [authorities, setAuthorities] = useState([])
 
-    const authorities = [
-        { value: 'HQ COMNOR', label: 'HQ COMNOR' },
-        { value: 'HQ COMKAR', label: 'HQ COMKAR' },
-        { value: 'HQ COMCEP', label: 'HQ COMCEP' },
-        { value: 'HQ PMSA', label: 'HQ PMSA' },
-        { value: 'HQ COMPAK', label: 'HQ COMPAK' },
-        { value: 'HQ COMCOAST', label: 'HQ COMCOAST' },
-        { value: 'HQ FOST', label: 'HQ FOST' },
-        { value: 'HQ NSFC', label: 'HQ NSFC' },
-        { value: 'HQ COMLOG', label: 'HQ COMLOG' }
-    ]
+    useEffect(() => {
+        const loadAuthorities = async () => {
+            try {
+                const response = await fetch('/api/auth/authority-options')
+                const data = await response.json()
+                if (!response.ok) throw new Error(data.message || 'Authority sign-in is unavailable')
+                setAuthorities(data)
+            } catch (loadError) {
+                setError(loadError instanceof Error ? loadError.message : 'Unable to load authorities')
+            }
+        }
+        loadAuthorities()
+    }, [])
 
     const handleSubmit = async (e) => {
         e.preventDefault()
@@ -39,7 +42,8 @@ const AuthorityLogin = () => {
                 localStorage.setItem('authorityToken', data.token)
                 localStorage.setItem('authorityUser', JSON.stringify({
                     authority: data.authority,
-                    type: 'authority'
+                    type: 'authority',
+                    mustChangePassword: Boolean(data.mustChangePassword)
                 }))
                 window.location.href = '/authority.html'
             } else {
@@ -103,12 +107,7 @@ const AuthorityLogin = () => {
                     </button>
                 </form>
 
-                <div className="login-footer">
-                    <p>Default password: 12345678</p>
-                    <p>
-                        <a href="/admin">Admin Portal</a>
-                    </p>
-                </div>
+                <div className="login-footer"><p>Credentials are issued by an authorized SCMS administrator.</p></div>
             </div>
         </div>
     )

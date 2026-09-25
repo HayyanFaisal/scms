@@ -1,9 +1,9 @@
 // Database Schema Types
 
-export type ServiceStatus = 'Serving' | 'Retired' | 'Expired';
+export type ServiceStatus = string;
 export type AcquisitionType = 'Off the Shelf' | 'Customized' | 'Reimbursed';
-export type UserRole = 'Admin' | 'Finance Officer' | 'Operator';
-export type DisabilityCategory = 'A' | 'B' | 'C';
+export type UserRole = string;
+export type DisabilityCategory = string;
 
 // Core Identity
 export interface ParentBeneficiary {
@@ -18,6 +18,11 @@ export interface ParentBeneficiary {
   Address?: string;
   Email?: string;
   Contact_No?: string;
+  Record_State?: 'complete' | 'incomplete' | 'conflict_review';
+  Missing_Fields?: string[] | string;
+  Is_Provisional?: boolean;
+  Claimed_At?: string;
+  Block_Reason?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -100,10 +105,13 @@ export interface User {
   User_ID: number;
   Username: string;
   Email: string;
-  Password_Hash: string;
+  Password_Hash?: string;
   Role: UserRole;
+  Roles?: string[];
+  Permissions?: string[];
   Full_Name: string;
   Is_Active: boolean;
+  Must_Change_Password?: boolean;
   Last_Login?: string;
   created_at?: string;
 }

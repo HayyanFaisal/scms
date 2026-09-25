@@ -1,114 +1,128 @@
-import { db } from './database';
 import type { User, UserRole } from '@/types';
+import { apiFetch, readApiError, setCsrfToken } from './http';
 
 export interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
+  isLoading: boolean;
   role: UserRole | null;
 }
 
+type SessionResponse = {
+  user: User;
+  csrfToken: string;
+};
+
 class AuthService {
-  private listeners: ((state: AuthState) => void)[] = [];
+  private listeners = new Set<(state: AuthState) => void>();
+  private state: AuthState = {
+    user: null,
+    isAuthenticated: false,
+    isLoading: true,
+    role: null
+  };
+
+  constructor() {
+    void this.refreshSession();
+  }
 
   getState(): AuthState {
-    const user = db.getCurrentUser();
-    return {
-      user,
-      isAuthenticated: !!user,
-      role: user?.Role || null
-    };
+    return this.state;
   }
 
   subscribe(listener: (state: AuthState) => void): () => void {
-    this.listeners.push(listener);
+    this.listeners.add(listener);
     return () => {
-      this.listeners = this.listeners.filter(l => l !== listener);
+      this.listeners.delete(listener);
     };
   }
 
-  private notify(): void {
-    const state = this.getState();
-    this.listeners.forEach(listener => listener(state));
+  private update(user: User | null, isLoading = false): void {
+    this.state = {
+      user,
+      isAuthenticated: Boolean(user),
+      isLoading,
+      role: user?.Role || null
+    };
+    this.listeners.forEach(listener => listener(this.state));
   }
 
-  login(username: string, password: string): User | null {
-    const user = db.login(username, password);
-    if (user) {
-      this.notify();
+  async refreshSession(): Promise<User | null> {
+    try {
+      const response = await apiFetch('/auth/session');
+      if (!response.ok) {
+        setCsrfToken(null);
+        this.update(null);
+        return null;
+      }
+      const payload = await response.json() as SessionResponse;
+      setCsrfToken(payload.csrfToken);
+      this.update(payload.user);
+      return payload.user;
+    } catch {
+      setCsrfToken(null);
+      this.update(null);
+      return null;
     }
-    return user;
   }
 
-  logout(): void {
-    db.logout();
-    this.notify();
+  async login(username: string, password: string): Promise<User> {
+    const response = await apiFetch('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password })
+    });
+    if (!response.ok) throw new Error(await readApiError(response, 'Unable to sign in.'));
+
+    const payload = await response.json() as SessionResponse;
+    setCsrfToken(payload.csrfToken);
+    this.update(payload.user);
+    return payload.user;
   }
 
-  hasPermission(permission: Permission): boolean {
-    const { user } = this.getState();
-    if (!user) return false;
+  async logout(): Promise<void> {
+    try {
+      await apiFetch('/auth/logout', { method: 'POST' });
+    } finally {
+      setCsrfToken(null);
+      this.update(null);
+    }
+  }
 
-    const rolePermissions: Record<UserRole, Permission[]> = {
-      'Admin': [
-        'parents:create', 'parents:read', 'parents:update', 'parents:delete',
-        'children:create', 'children:read', 'children:update', 'children:delete',
-        'documents:create', 'documents:read', 'documents:update', 'documents:delete',
-        'banking:create', 'banking:read', 'banking:update', 'banking:delete',
-        'grants:create', 'grants:read', 'grants:update', 'grants:delete',
-        'gadgets:create', 'gadgets:read', 'gadgets:update', 'gadgets:delete',
-        'users:create', 'users:read', 'users:update', 'users:delete',
-        'reports:read', 'audit:read'
-      ],
-      'Finance Officer': [
-        'parents:read',
-        'children:read',
-        'documents:read',
-        'banking:read', 'banking:update',
-        'grants:read', 'grants:update',
-        'gadgets:read', 'gadgets:update',
-        'users:read',
-        'reports:read'
-      ],
-      'Operator': [
-        'parents:create', 'parents:read', 'parents:update',
-        'children:create', 'children:read', 'children:update',
-        'documents:create', 'documents:read', 'documents:update',
-        'banking:read',
-        'grants:read',
-        'gadgets:read',
-        'reports:read'
-      ]
-    };
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    const response = await apiFetch('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword })
+    });
+    if (!response.ok) throw new Error(await readApiError(response, 'Unable to change password.'));
+    await this.refreshSession();
+  }
 
-    return rolePermissions[user.Role]?.includes(permission) || false;
+  hasPermission(permission: string): boolean {
+    return Boolean(this.state.user?.Permissions?.includes(permission));
   }
 
   canCreate(table: string): boolean {
-    return this.hasPermission(`${table}:create` as Permission);
+    const aliases: Record<string, string> = { documents: 'documents.upload', banking: 'banking.update', grants: 'grants.manage', gadgets: 'gadgets.manage' };
+    return this.hasPermission(aliases[table] || `${table}.create`);
   }
 
   canRead(table: string): boolean {
-    return this.hasPermission(`${table}:read` as Permission);
+    return this.hasPermission(`${table}.read`);
   }
 
   canUpdate(table: string): boolean {
-    return this.hasPermission(`${table}:update` as Permission);
+    const aliases: Record<string, string> = { grants: 'grants.manage', gadgets: 'gadgets.manage' };
+    return this.hasPermission(aliases[table] || `${table}.update`);
   }
 
   canDelete(table: string): boolean {
-    return this.hasPermission(`${table}:delete` as Permission);
+    const aliases: Record<string, string> = {
+      parents: 'parents.archive', children: 'children.archive', documents: 'documents.delete',
+      grants: 'grants.manage', gadgets: 'gadgets.manage'
+    };
+    return this.hasPermission(aliases[table] || `${table}.delete`);
   }
 }
-
-type Permission = 
-  | 'parents:create' | 'parents:read' | 'parents:update' | 'parents:delete'
-  | 'children:create' | 'children:read' | 'children:update' | 'children:delete'
-  | 'documents:create' | 'documents:read' | 'documents:update' | 'documents:delete'
-  | 'banking:create' | 'banking:read' | 'banking:update' | 'banking:delete'
-  | 'grants:create' | 'grants:read' | 'grants:update' | 'grants:delete'
-  | 'gadgets:create' | 'gadgets:read' | 'gadgets:update' | 'gadgets:delete'
-  | 'users:create' | 'users:read' | 'users:update' | 'users:delete'
-  | 'reports:read' | 'audit:read';
 
 export const auth = new AuthService();
 export default auth;

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -15,9 +15,7 @@ import {
 } from 'lucide-react';
 import { useDashboardKPIs, useSearch, useSeedData } from '@/hooks/useDatabase';
 import { useAuth } from '@/hooks/useAuth';
-import { formatCurrency, formatNumber, formatDate } from '@/lib/validation';
-import { getUnreadCount } from '@/lib/notifications';
-import { db } from '@/services/database';
+import { formatCurrency, formatNumber } from '@/lib/validation';
 import type { SearchResult } from '@/types';
 
 interface DashboardProps {
@@ -30,22 +28,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
   const { seed } = useSeedData();
   const [searchQuery, setSearchQuery] = useState('');
   const [showResults, setShowResults] = useState(false);
-  const [notificationCount, setNotificationCount] = useState(0);
   const searchResults = useSearch(searchQuery);
-
-  useEffect(() => {
-    setNotificationCount(getUnreadCount());
-    const unsubscribe = db.subscribe(() => {
-      setNotificationCount(getUnreadCount());
-    });
-    const interval = setInterval(() => {
-      setNotificationCount(getUnreadCount());
-    }, 60000);
-    return () => {
-      unsubscribe();
-      clearInterval(interval);
-    };
-  }, []);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();

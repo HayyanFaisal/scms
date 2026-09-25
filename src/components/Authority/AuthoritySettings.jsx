@@ -1,9 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import './AuthoritySettings.css'
 
-const AuthoritySettings = () => {
-    const [authorities, setAuthorities] = useState([])
-    const [selectedAuthority, setSelectedAuthority] = useState('')
+const AuthoritySettings = ({ authority, onPasswordChanged }) => {
     const [currentPassword, setCurrentPassword] = useState('')
     const [newPassword, setNewPassword] = useState('')
     const [confirmPassword, setConfirmPassword] = useState('')
@@ -11,22 +9,8 @@ const AuthoritySettings = () => {
     const [message, setMessage] = useState('')
     const [error, setError] = useState('')
 
-    useEffect(() => {
-        fetchAuthorities()
-    }, [])
-
-    const fetchAuthorities = async () => {
-        try {
-            const response = await fetch('/api/auth/authorities')
-            const data = await response.json()
-            setAuthorities(data)
-        } catch (error) {
-            setError('Failed to fetch authorities')
-        }
-    }
-
-    const handlePasswordUpdate = async (e) => {
-        e.preventDefault()
+    const handlePasswordUpdate = async (event) => {
+        event.preventDefault()
         setLoading(true)
         setError('')
         setMessage('')
@@ -36,147 +20,104 @@ const AuthoritySettings = () => {
             setLoading(false)
             return
         }
-
-        if (newPassword.length < 6) {
-            setError('Password must be at least 6 characters long')
+        if (newPassword.length < 12) {
+            setError('The new password must be at least 12 characters long')
+            setLoading(false)
+            return
+        }
+        if (newPassword === currentPassword) {
+            setError('Choose a password different from the current password')
             setLoading(false)
             return
         }
 
         try {
-            const response = await fetch('/api/auth/update-authority-password', {
+            const token = localStorage.getItem('authorityToken')
+            const response = await fetch('/api/authority/change-password', {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
                 },
-                body: JSON.stringify({
-                    authority: selectedAuthority,
-                    currentPassword,
-                    newPassword
-                })
+                body: JSON.stringify({ currentPassword, newPassword })
             })
-
             const data = await response.json()
+            if (!response.ok) throw new Error(data.message || 'Failed to change password')
 
-            if (response.ok) {
-                setMessage('Password updated successfully!')
-                setCurrentPassword('')
-                setNewPassword('')
-                setConfirmPassword('')
-                fetchAuthorities() // Refresh the list
-            } else {
-                setError(data.message || 'Failed to update password')
-            }
-        } catch (error) {
-            setError('Network error. Please try again.')
+            setMessage(data.message || 'Password changed. Sign in again.')
+            setCurrentPassword('')
+            setNewPassword('')
+            setConfirmPassword('')
+            window.setTimeout(() => {
+                if (onPasswordChanged) onPasswordChanged()
+                else {
+                    localStorage.removeItem('authorityToken')
+                    localStorage.removeItem('authorityUser')
+                    window.location.href = '/authority.html'
+                }
+            }, 1000)
+        } catch (changeError) {
+            setError(changeError instanceof Error ? changeError.message : 'Network error. Please try again.')
         } finally {
             setLoading(false)
         }
     }
 
-    const selectedAuthData = authorities.find(auth => auth.value === selectedAuthority)
-
     return (
         <div className="authority-settings">
             <div className="settings-header">
-                <h1>Authority Settings</h1>
-                <button onClick={() => window.location.href = '/authority.html'} className="back-btn">
-                    ← Back to Dashboard
-                </button>
+                <div>
+                    <h1>Security Settings</h1>
+                    <p className="settings-subtitle">Change the password for {authority || 'this authority'}.</p>
+                </div>
             </div>
 
-            <div className="settings-content">
-                <div className="authorities-list">
-                    <h2>Authorities</h2>
-                    <div className="authorities-grid">
-                        {authorities.map(auth => (
-                            <div key={auth.value} className="authority-card">
-                                <h3>{auth.label}</h3>
-                                <div className="auth-status">
-                                    <span className={`password-status ${auth.hasCustomPassword ? 'custom' : 'default'}`}>
-                                        {auth.hasCustomPassword ? 'Custom Password' : 'Default Password'}
-                                    </span>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
+            <div className="settings-content settings-content-single">
                 <div className="password-update-form">
-                    <h2>Update Authority Password</h2>
+                    <h2>Change Your Password</h2>
+                    <p className="settings-help">For security, you must provide the current password. An administrative reset is handled separately by an authorized Director.</p>
                     <form onSubmit={handlePasswordUpdate}>
                         <div className="form-group">
-                            <label htmlFor="authority">Select Authority</label>
-                            <select
-                                id="authority"
-                                value={selectedAuthority}
-                                onChange={(e) => setSelectedAuthority(e.target.value)}
-                                required
-                            >
-                                <option value="">Choose authority...</option>
-                                {authorities.map(auth => (
-                                    <option key={auth.value} value={auth.value}>
-                                        {auth.label}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-
-                        {selectedAuthData && (
-                            <div className="selected-info">
-                                <p>Current status: <span className={`status ${selectedAuthData.hasCustomPassword ? 'custom' : 'default'}`}>
-                                    {selectedAuthData.hasCustomPassword ? 'Custom password set' : 'Using default password (12345678)'}
-                                </span></p>
-                            </div>
-                        )}
-
-                        <div className="form-group">
-                            <label htmlFor="currentPassword">Current Password</label>
+                            <label htmlFor="authorityCurrentPassword">Current Password</label>
                             <input
                                 type="password"
-                                id="currentPassword"
+                                id="authorityCurrentPassword"
                                 value={currentPassword}
-                                onChange={(e) => setCurrentPassword(e.target.value)}
+                                onChange={(event) => setCurrentPassword(event.target.value)}
                                 required
-                                placeholder="Enter current password"
+                                autoComplete="current-password"
                             />
                         </div>
-
                         <div className="form-group">
-                            <label htmlFor="newPassword">New Password</label>
+                            <label htmlFor="authorityNewPassword">New Password</label>
                             <input
                                 type="password"
-                                id="newPassword"
+                                id="authorityNewPassword"
                                 value={newPassword}
-                                onChange={(e) => setNewPassword(e.target.value)}
+                                onChange={(event) => setNewPassword(event.target.value)}
+                                minLength={12}
                                 required
-                                placeholder="Enter new password (min 6 characters)"
-                                minLength={6}
+                                autoComplete="new-password"
                             />
                         </div>
-
                         <div className="form-group">
-                            <label htmlFor="confirmPassword">Confirm New Password</label>
+                            <label htmlFor="authorityConfirmPassword">Confirm New Password</label>
                             <input
                                 type="password"
-                                id="confirmPassword"
+                                id="authorityConfirmPassword"
                                 value={confirmPassword}
-                                onChange={(e) => setConfirmPassword(e.target.value)}
+                                onChange={(event) => setConfirmPassword(event.target.value)}
+                                minLength={12}
                                 required
-                                placeholder="Confirm new password"
-                                minLength={6}
+                                autoComplete="new-password"
                             />
                         </div>
 
                         {message && <div className="success-message">{message}</div>}
                         {error && <div className="error-message">{error}</div>}
 
-                        <button
-                            type="submit"
-                            disabled={loading || !selectedAuthority || !currentPassword || !newPassword || !confirmPassword}
-                            className="update-btn"
-                        >
-                            {loading ? 'Updating...' : 'Update Password'}
+                        <button type="submit" disabled={loading} className="update-btn">
+                            {loading ? 'Changing...' : 'Change Password'}
                         </button>
                     </form>
                 </div>

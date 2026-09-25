@@ -119,6 +119,13 @@
     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 
+.form-help {
+    color: #64748b;
+    font-size: 14px;
+    line-height: 1.5;
+    margin: -8px 0 20px;
+}
+
 .form-group {
     margin-bottom: 20px;
 }
@@ -248,6 +255,10 @@
 
 .dark .password-update-form {
     background: #1e293b;
+}
+
+.dark .form-help {
+    color: #94a3b8;
 }
 
 .dark .form-group label {

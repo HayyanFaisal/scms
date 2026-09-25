@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -35,15 +35,17 @@ import {
 } from 'lucide-react';
 import { useGrants, useGadgets, useChildren, useParents, useExpiringGrants } from '@/hooks/useDatabase';
 import { useAuth } from '@/hooks/useAuth';
+import { useReferenceData } from '@/hooks/useReferenceData';
+import { configuration, type CategoryRate } from '@/services/configuration';
 import { formatChildDisplayName } from '@/lib/utils';
 import { formatCurrency, formatDate } from '@/lib/validation';
 import type { MonthlyGrants, ChildGadgets, DisabilityCategory, AcquisitionType } from '@/types';
 
 interface GrantGadgetManagerProps {
-  onNavigate: (page: string, params?: any) => void;
+  onNavigate: (page: string, params?: Record<string, string | number | undefined>) => void;
 }
 
-const categoryColors: Record<DisabilityCategory, string> = {
+const categoryColors: Record<string, string> = {
   'A': 'bg-red-100 text-red-800 border-red-200',
   'B': 'bg-amber-100 text-amber-800 border-amber-200',
   'C': 'bg-green-100 text-green-800 border-green-200'
@@ -55,7 +57,8 @@ const acquisitionColors: Record<AcquisitionType, string> = {
   'Reimbursed': 'bg-orange-100 text-orange-800'
 };
 
-export function GrantGadgetManager({ onNavigate }: GrantGadgetManagerProps) {
+export function GrantGadgetManager({ onNavigate: _onNavigate }: GrantGadgetManagerProps) {
+  void _onNavigate;
   const [activeTab, setActiveTab] = useState('grants');
   const { canCreate, canUpdate, canDelete } = useAuth();
 
@@ -114,11 +117,14 @@ function GrantsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; c
   const { children } = useChildren();
   const { parents } = useParents();
   const { grants: expiringGrants } = useExpiringGrants(30);
+  const { items: referenceItems } = useReferenceData();
+  const [rates, setRates] = useState<CategoryRate[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<DisabilityCategory | 'all'>('all');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingGrant, setEditingGrant] = useState<MonthlyGrants | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<MonthlyGrants | null>(null);
+  const [renderTime] = useState(() => Date.now());
 
   const [formData, setFormData] = useState({
     Child_ID: '',
@@ -126,6 +132,20 @@ function GrantsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; c
     Approved_From: '',
     Approved_To: ''
   });
+
+  useEffect(() => {
+    configuration.loadRates().then(setRates).catch(() => setRates([]));
+  }, []);
+
+  const selectChild = (childId: string) => {
+    if (editingGrant) {
+      setFormData(current => ({ ...current, Child_ID: childId }));
+      return;
+    }
+    const category = children.find(child => child.Child_ID === Number(childId))?.Disability_Category;
+    const suggestedRate = rates.find(rate => rate.isCurrent && rate.categoryName === category);
+    setFormData(current => ({ ...current, Child_ID: childId, Monthly_Amount: suggestedRate ? String(suggestedRate.monthlyAmount) : current.Monthly_Amount }));
+  };
 
   const filteredGrants = grants.filter(grant => {
     const child = children.find(c => c.Child_ID === grant.Child_ID);
@@ -213,9 +233,7 @@ function GrantsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; c
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Categories</SelectItem>
-                <SelectItem value="A">Category A</SelectItem>
-                <SelectItem value="B">Category B</SelectItem>
-                <SelectItem value="C">Category C</SelectItem>
+                {referenceItems.category.map(category => <SelectItem key={category.id} value={category.name}>Category {category.name}</SelectItem>)}
               </SelectContent>
             </Select>
             {canCreate && (
@@ -283,9 +301,9 @@ function GrantsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; c
                 ) : (
                   filteredGrants.map((grant) => {
                     const child = children.find(c => c.Child_ID === grant.Child_ID);
-                    const parent = parents.find((p: any) => p.P_No_O_No === child?.P_No_O_No);
-                    const isExpiring = new Date(grant.Approved_To) <= new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-                    const isExpired = new Date(grant.Approved_To) < new Date();
+                    const parent = parents.find(p => p.P_No_O_No === child?.P_No_O_No);
+                    const isExpiring = new Date(grant.Approved_To).getTime() <= renderTime + 30 * 24 * 60 * 60 * 1000;
+                    const isExpired = new Date(grant.Approved_To).getTime() < renderTime;
                     
                     return (
                       <TableRow key={grant.Grant_ID}>
@@ -294,7 +312,7 @@ function GrantsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; c
                           <p className="text-sm text-slate-500">{child?.P_No_O_No}</p>
                         </TableCell>
                         <TableCell>
-                          <Badge className={categoryColors[child?.Disability_Category || 'A']}>
+                          <Badge className={categoryColors[child?.Disability_Category || ''] || 'bg-slate-100 text-slate-800 border-slate-200'}>
                             {child?.Disability_Category}
                           </Badge>
                         </TableCell>
@@ -343,7 +361,7 @@ function GrantsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; c
               <Label>Child</Label>
               <Select 
                 value={formData.Child_ID} 
-                onValueChange={(v) => setFormData({ ...formData, Child_ID: v })}
+                onValueChange={selectChild}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select child" />
@@ -351,7 +369,7 @@ function GrantsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; c
                 <SelectContent>
                   {children.map(child => (
                     <SelectItem key={child.Child_ID} value={child.Child_ID.toString()}>
-                      {formatChildDisplayName(child.Child_Name, parents.find((p: any) => p.P_No_O_No === child.P_No_O_No)?.Parent_Name, child.P_No_O_No)} (Cat {child.Disability_Category})
+                      {formatChildDisplayName(child.Child_Name, parents.find(p => p.P_No_O_No === child.P_No_O_No)?.Parent_Name, child.P_No_O_No)} (Cat {child.Disability_Category})
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -365,6 +383,7 @@ function GrantsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; c
                 onChange={(e) => setFormData({ ...formData, Monthly_Amount: e.target.value })}
                 placeholder="Enter amount"
               />
+              {!editingGrant && formData.Child_ID && <p className="mt-1 text-xs text-slate-500">Prefilled from the current category schedule. You can override it for this grant.</p>}
             </div>
             <div>
               <Label>Approved From</Label>
@@ -553,7 +572,7 @@ function GadgetsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; 
                 ) : (
                   filteredGadgets.map((gadget) => {
                     const child = children.find(c => c.Child_ID === gadget.Child_ID);
-                    const parent = parents.find((p: any) => p.P_No_O_No === child?.P_No_O_No);
+                    const parent = parents.find(p => p.P_No_O_No === child?.P_No_O_No);
                     
                     return (
                       <TableRow key={gadget.Gadget_ID}>
@@ -611,7 +630,7 @@ function GadgetsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; 
                 <SelectContent>
                   {children.map(child => (
                     <SelectItem key={child.Child_ID} value={child.Child_ID.toString()}>
-                      {formatChildDisplayName(child.Child_Name, parents.find((p: any) => p.P_No_O_No === child.P_No_O_No)?.Parent_Name, child.P_No_O_No)}
+                      {formatChildDisplayName(child.Child_Name, parents.find(p => p.P_No_O_No === child.P_No_O_No)?.Parent_Name, child.P_No_O_No)}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ArrowLeft, Save, User, FileText, CreditCard, Upload, Image, Trash2 } from 'lucide-react';
 import { useParents, useDocuments, useBanking, useScannedDocuments } from '@/hooks/useDatabase';
+import { useReferenceData } from '@/hooks/useReferenceData';
 import { getCNICError, getIBANError, getPhoneError, getPNoError } from '@/lib/validation';
 import type { ServiceStatus } from '@/types';
 
@@ -23,6 +24,7 @@ export function ParentForm({ pNo, onSave, onCancel }: ParentFormProps) {
   const { documents, create: createDoc, update: updateDoc } = useDocuments();
   const { banking, create: createBank, update: updateBank } = useBanking();
   const isEditing = !!pNo;
+  const { items: referenceItems, loading: referenceLoading, error: referenceError } = useReferenceData();
   const {
     documents: scannedDocuments,
     loading: scannedDocsLoading,
@@ -50,6 +52,7 @@ export function ParentForm({ pNo, onSave, onCancel }: ParentFormProps) {
     Parent_CNIC: '',
     Address: '',
     Email: '',
+    Contact_No: '',
     No_of_Disabled_Children: 0
   });
 
@@ -91,6 +94,7 @@ export function ParentForm({ pNo, onSave, onCancel }: ParentFormProps) {
         Parent_CNIC: existingParent.Parent_CNIC,
         Address: existingParent.Address || '',
         Email: existingParent.Email || '',
+        Contact_No: existingParent.Contact_No || '',
         No_of_Disabled_Children: existingParent.No_of_Disabled_Children || 0
       });
     }
@@ -134,6 +138,10 @@ export function ParentForm({ pNo, onSave, onCancel }: ParentFormProps) {
       const phoneError = getPhoneError(docData.Contact_No);
       if (phoneError) newErrors.push(phoneError);
     }
+    if (parentData.Contact_No) {
+      const phoneError = getPhoneError(parentData.Contact_No);
+      if (phoneError) newErrors.push(phoneError);
+    }
 
     if (bankData.IBAN) {
       const ibanError = getIBANError(bankData.IBAN);
@@ -157,6 +165,7 @@ export function ParentForm({ pNo, onSave, onCancel }: ParentFormProps) {
   };
 
   const handleSubmit = () => {
+    if (referenceLoading || referenceError) return;
     if (!validate()) return;
 
     if (isEditing) {
@@ -234,7 +243,7 @@ export function ParentForm({ pNo, onSave, onCancel }: ParentFormProps) {
             {isEditing ? 'Edit Parent' : 'Add New Parent'}
           </h1>
         </div>
-        <Button onClick={handleSubmit}>
+        <Button onClick={handleSubmit} disabled={referenceLoading || !!referenceError}>
           <Save className="w-4 h-4 mr-2" />
           Save
         </Button>
@@ -251,6 +260,8 @@ export function ParentForm({ pNo, onSave, onCancel }: ParentFormProps) {
           </AlertDescription>
         </Alert>
       )}
+
+      {referenceError && <Alert variant="destructive"><AlertDescription>{referenceError} Configuration must be available before this record can be saved.</AlertDescription></Alert>}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-3">
@@ -296,44 +307,48 @@ export function ParentForm({ pNo, onSave, onCancel }: ParentFormProps) {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="rank">Rank/Rate <span className="text-red-500">*</span></Label>
-                  <Input
-                    id="rank"
-                    value={parentData.Rank_Rate}
-                    onChange={(e) => setParentData({ ...parentData, Rank_Rate: e.target.value })}
-                    placeholder="e.g., Captain"
-                  />
+                  <Select value={parentData.Rank_Rate} onValueChange={(value) => setParentData({ ...parentData, Rank_Rate: value })} disabled={referenceLoading}>
+                    <SelectTrigger id="rank"><SelectValue placeholder="Select rank/rate" /></SelectTrigger>
+                    <SelectContent>
+                      {parentData.Rank_Rate && !referenceItems.rank.some(item => item.name === parentData.Rank_Rate) && <SelectItem value={parentData.Rank_Rate}>{parentData.Rank_Rate} (archived)</SelectItem>}
+                      {referenceItems.rank.map(item => <SelectItem key={item.id} value={item.name}>{item.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="unit">Unit <span className="text-red-500">*</span></Label>
-                  <Input
-                    id="unit"
-                    value={parentData.Unit}
-                    onChange={(e) => setParentData({ ...parentData, Unit: e.target.value })}
-                    placeholder="e.g., 5th Infantry Battalion"
-                  />
+                  <Select value={parentData.Unit} onValueChange={(value) => setParentData({ ...parentData, Unit: value })} disabled={referenceLoading}>
+                    <SelectTrigger id="unit"><SelectValue placeholder="Select unit" /></SelectTrigger>
+                    <SelectContent>
+                      {parentData.Unit && !referenceItems.unit.some(item => item.name === parentData.Unit) && <SelectItem value={parentData.Unit}>{parentData.Unit} (archived)</SelectItem>}
+                      {referenceItems.unit.map(item => <SelectItem key={item.id} value={item.name}>{item.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="admin">Administrative Authority</Label>
-                  <Input
-                    id="admin"
-                    value={parentData.Admin_Authority}
-                    onChange={(e) => setParentData({ ...parentData, Admin_Authority: e.target.value })}
-                    placeholder="e.g., GHQ Rawalpindi"
-                  />
+                  <Select value={parentData.Admin_Authority || '__none__'} onValueChange={(value) => setParentData({ ...parentData, Admin_Authority: value === '__none__' ? '' : value })} disabled={referenceLoading}>
+                    <SelectTrigger id="admin"><SelectValue placeholder="Select authority" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">No authority assigned</SelectItem>
+                      {parentData.Admin_Authority && !referenceItems.authority.some(item => item.name === parentData.Admin_Authority) && <SelectItem value={parentData.Admin_Authority}>{parentData.Admin_Authority} (archived)</SelectItem>}
+                      {referenceItems.authority.map(item => <SelectItem key={item.id} value={item.name}>{item.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="status">Service Status</Label>
                   <Select 
                     value={parentData.Service_Status} 
                     onValueChange={(v) => setParentData({ ...parentData, Service_Status: v as ServiceStatus })}
+                    disabled={referenceLoading}
                   >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Serving">Serving</SelectItem>
-                      <SelectItem value="Retired">Retired</SelectItem>
-                      <SelectItem value="Expired">Expired</SelectItem>
+                      {parentData.Service_Status && !referenceItems.service_status.some(item => item.name === parentData.Service_Status) && <SelectItem value={parentData.Service_Status}>{parentData.Service_Status} (archived)</SelectItem>}
+                      {referenceItems.service_status.map(item => <SelectItem key={item.id} value={item.name}>{item.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -367,7 +382,16 @@ export function ParentForm({ pNo, onSave, onCancel }: ParentFormProps) {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="disabledChildren">No. of Disabled Children</Label>
+                  <Label htmlFor="contactNo">Contact Number</Label>
+                  <Input
+                    id="contactNo"
+                    value={parentData.Contact_No}
+                    onChange={(e) => setParentData({ ...parentData, Contact_No: e.target.value })}
+                    placeholder="03XX-XXXXXXX"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="disabledChildren">Registered Children</Label>
                   <Input
                     id="disabledChildren"
                     type="number"

@@ -8,10 +8,6 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(localStorage.getItem('portalToken') || localStorage.getItem('token'))
   const navigate = useNavigate()
 
-  console.log('AuthContext - portalToken:', localStorage.getItem('portalToken'))
-  console.log('AuthContext - token:', localStorage.getItem('token'))
-  console.log('AuthContext - initial token state:', token)
-
   useEffect(() => {
     if (token) {
       // Validate token format (JWT tokens should have 3 parts separated by dots)

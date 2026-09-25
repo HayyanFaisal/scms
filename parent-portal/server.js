@@ -11,6 +11,13 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs/promises';
 import dotenv from 'dotenv';
+import {
+    PARENT_FIELD_COLUMNS,
+    loadParentFieldPolicies,
+    refreshChildCompleteness,
+    refreshParentCompleteness,
+    syncParentIdentifiers
+} from '../server/profile-lifecycle.js';
 dotenv.config();
 
 const app = express();
@@ -19,10 +26,25 @@ const app = express();
 app.use(helmet());
 app.use(express.json({ limit: '10mb' }));
 
-// CORS
+// CORS: accept the configured internal origins and both loopback spellings in development.
+const parentPortalOrigins = new Set([
+    ...(process.env.PARENT_PORTAL_ORIGINS || process.env.PARENT_PORTAL_URL || '')
+        .split(',')
+        .map(origin => origin.trim())
+        .filter(Boolean),
+    'http://localhost:5174',
+    'http://127.0.0.1:5174'
+]);
+
 app.use(cors({
-    origin: process.env.PARENT_PORTAL_URL || 'http://127.0.0.1:5173',
-    credentials: true
+    credentials: true,
+    origin(origin, callback) {
+        if (!origin || parentPortalOrigins.has(origin)) {
+            callback(null, true);
+            return;
+        }
+        callback(new Error('Origin is not allowed'));
+    }
 }));
 
 // Rate limiting with admin API key exception
@@ -130,27 +152,47 @@ pool.getConnection()
     });
 
 // JWT middleware
-const authenticateToken = (req, res, next) => {
+const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
     
-    console.log('Auth check - AuthHeader:', authHeader ? 'Present' : 'Missing');
-    console.log('Auth check - AuthHeader Value:', authHeader ? authHeader.substring(0, 50) : 'N/A');
-    console.log('Auth check - Token:', token ? `${token.substring(0, 20)}...` : 'Missing');
-    console.log('Auth check - JWT Secret:', process.env.PORTAL_JWT_SECRET ? 'Present' : 'Missing');
-    
     if (!token) return res.status(401).json({ error: 'Access denied' });
     
-    jwt.verify(token, process.env.PORTAL_JWT_SECRET, (err, user) => {
-        if (err) {
-            console.error('JWT verification failed:', err.message);
-            console.error('JWT error name:', err.name);
-            return res.status(403).json({ error: 'Invalid token' });
+    try {
+        const user = jwt.verify(token, process.env.PORTAL_JWT_SECRET);
+        const [records] = await pool.execute(
+            'SELECT Credential_Version, Must_Change_Password, Status FROM parent_beneficiary WHERE P_No_O_No = ?',
+            [user.pNoONo]
+        );
+        if (!records[0] || Number(user.credentialVersion) !== Number(records[0].Credential_Version)) {
+            return res.status(403).json({ error: 'Session is no longer valid. Please sign in again.' });
         }
-        console.log('JWT verification successful for user:', user.pNoONo);
         req.user = user;
+        req.user.mustChangePassword = Boolean(records[0].Must_Change_Password);
+        req.user.accountStatus = records[0].Status;
+        if (req.user.mustChangePassword && !req.originalUrl.startsWith('/api/auth/change-password')) {
+            return res.status(403).json({ error: 'Replace the one-time password before using the portal.', status: 'password_change_required' });
+        }
+        if (req.user.accountStatus === 'blocked') {
+            return res.status(403).json({ error: 'Online access is blocked. Contact the office.', status: 'blocked' });
+        }
+        if (req.user.accountStatus === 'changes_required') {
+            const allowed = ['/api/profile', '/api/profile/update', '/api/profile/configuration', '/api/status', '/api/auth/change-password'];
+            if (!allowed.some(pathName => req.originalUrl.startsWith(pathName))) {
+                return res.status(403).json({ error: 'Complete the requested profile corrections before using this feature.', status: 'changes_required' });
+            }
+        }
+        if (['pending', 'rejected'].includes(req.user.accountStatus)) {
+            const allowed = ['/api/profile', '/api/status'];
+            if (!allowed.some(pathName => req.originalUrl.startsWith(pathName))) {
+                return res.status(403).json({ error: 'This account is not currently approved for portal operations.', status: req.user.accountStatus });
+            }
+        }
         next();
-    });
+    } catch (error) {
+        console.error('JWT verification failed:', error.message);
+        return res.status(403).json({ error: 'Invalid token' });
+    }
 };
 
 const requireApproved = async (req, res, next) => {
@@ -167,34 +209,86 @@ const requireApproved = async (req, res, next) => {
 // Password utilities
 const hashPassword = async (password) => bcrypt.hash(password, 12);
 const verifyPassword = async (password, hash) => bcrypt.compare(password, hash);
-const generateDefaultPassword = (pNoONo) => `password@${pNoONo}`;
+const generateOneTimePassword = () => `SCMS-${crypto.randomBytes(12).toString('base64url')}!`;
+
+const REFERENCE_TYPES = ['authority', 'school', 'rank', 'unit', 'service_status', 'category'];
+
+const assertConfiguredValue = async (itemType, value, { optional = false } = {}) => {
+    const normalized = typeof value === 'string' ? value.trim() : '';
+    if (!normalized && optional) return null;
+    const [rows] = await pool.execute(
+        `SELECT id FROM scms_reference_items
+         WHERE item_type = ? AND name = ? AND is_active = TRUE`,
+        [itemType, normalized]
+    );
+    if (rows.length === 0) {
+        const error = new Error(`${normalized || 'The supplied value'} is not an active configured ${itemType.replace('_', ' ')}.`);
+        error.status = 400;
+        throw error;
+    }
+    return normalized;
+};
 
 // ==================== AUTH ROUTES ====================
+
+// Public, read-only choices used by registration forms. No sensitive configuration is exposed.
+app.get('/api/config/reference-data', async (_req, res) => {
+    try {
+        const [rows] = await pool.execute(
+            `SELECT item_type, code, name, description, sort_order
+             FROM scms_reference_items
+             WHERE is_active = TRUE
+             ORDER BY item_type, sort_order, name`
+        );
+        const items = Object.fromEntries(REFERENCE_TYPES.map(type => [type, []]));
+        for (const row of rows) {
+            if (items[row.item_type]) items[row.item_type].push({ code: row.code, name: row.name, description: row.description || '' });
+        }
+        res.json({ items });
+    } catch (error) {
+        console.error('Failed to load registration configuration:', error);
+        res.status(500).json({ error: 'Registration configuration is unavailable' });
+    }
+});
 
 // Self-registration (New User)
 app.post('/api/auth/signup', authLimiter, async (req, res) => {
     const { email, password, parentName, pNoONo, rankRate, unit, contactNo, cnic, serviceStatus, adminAuthority } = req.body;
     
     // Ensure all optional fields have default values
-    const safeRankRate = rankRate || null;
-    const safeUnit = unit || null;
+    const safeRankRate = rankRate?.trim() || null;
+    const safeUnit = unit?.trim() || null;
     const safeContactNo = contactNo || null;
     const safeServiceStatus = serviceStatus || 'Serving';
-    const safeAdminAuthority = adminAuthority || 'HQ COMNOR';
+    const safeAdminAuthority = adminAuthority?.trim() || null;
     
+    const connection = await pool.getConnection();
     try {
         if (!email || !password || !parentName || !pNoONo || !cnic) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
 
-        const [existing] = await pool.execute(
-            'SELECT P_No_O_No, Email FROM parent_beneficiary WHERE P_No_O_No = ? OR Email = ?',
+        await Promise.all([
+            assertConfiguredValue('rank', safeRankRate, { optional: true }),
+            assertConfiguredValue('unit', safeUnit, { optional: true }),
+            assertConfiguredValue('authority', safeAdminAuthority, { optional: true }),
+            assertConfiguredValue('service_status', safeServiceStatus)
+        ]);
+
+        const [existing] = await connection.execute(
+            'SELECT P_No_O_No, Email, Status FROM parent_beneficiary WHERE P_No_O_No = ? OR Email = ?',
             [pNoONo, email]
         );
         
         if (existing.length > 0) {
             const existingUser = existing[0];
             if (existingUser.P_No_O_No === pNoONo) {
+                if (existingUser.Status === 'pending') {
+                    return res.status(409).json({
+                        error: 'This account is already registered and pending authorization from PNBA staff.',
+                        status: 'pending'
+                    });
+                }
                 return res.status(409).json({ 
                     error: 'This P.No/O.No is already registered. Please login instead.' 
                 });
@@ -208,14 +302,17 @@ app.post('/api/auth/signup', authLimiter, async (req, res) => {
 
         const hashedPassword = await hashPassword(password);
         const verificationToken = crypto.randomBytes(32).toString('hex');
+        await connection.beginTransaction();
 
         // Insert new user into parent_beneficiary with ALL fields
-        const [result] = await pool.execute(
+        const [result] = await connection.execute(
             `INSERT INTO parent_beneficiary 
              (P_No_O_No, Parent_Name, Rank_Rate, Unit, Admin_Authority, Service_Status, Parent_CNIC, Contact_No, Email, Password_Hash, Status, Origin, Created_At)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
             [pNoONo, parentName, safeRankRate, safeUnit, safeAdminAuthority, safeServiceStatus, cnic, safeContactNo, email, hashedPassword, 'pending', 'self_registered']
         );
+        await syncParentIdentifiers(connection, pNoONo, cnic, { source: 'self_registration', verified: false });
+        await refreshParentCompleteness(connection, pNoONo);
 
         // Create approval request
         console.log('Creating approval request for user:', pNoONo);
@@ -225,13 +322,14 @@ app.post('/api/auth/signup', authLimiter, async (req, res) => {
             adminAuthority: safeAdminAuthority
         });
         
-        const [approvalResult] = await pool.execute(
+        const [approvalResult] = await connection.execute(
             `INSERT INTO Approval_Requests (user_id, request_type, payload, status, created_at) 
              VALUES (?, 'parent_registration', ?, 'pending', NOW())`,
             [pNoONo, approvalPayload]
         );
         
         console.log('Approval request created with ID:', approvalResult.insertId);
+        await connection.commit();
 
         res.status(201).json({ 
             message: 'Registration submitted for admin approval',
@@ -240,11 +338,15 @@ app.post('/api/auth/signup', authLimiter, async (req, res) => {
         });
 
     } catch (error) {
+        await connection.rollback();
+        if (error.status) return res.status(error.status).json({ error: error.message, code: error.publicCode });
         if (error.code === 'ER_DUP_ENTRY') {
             return res.status(409).json({ error: 'Email or P.No/O.No already registered' });
         }
         console.error('Signup error:', error);
         res.status(500).json({ error: 'Registration failed' });
+    } finally {
+        connection.release();
     }
 });
 
@@ -252,58 +354,49 @@ app.post('/api/auth/signup', authLimiter, async (req, res) => {
 app.post('/api/auth/login', authLimiter, async (req, res) => {
     const { pNoONo, password } = req.body;
 
-    console.log('Login attempt - P.No/O.No:', pNoONo);
-    console.log('Login attempt - Password provided:', !!password);
-
     if (!pNoONo || !password) {
         return res.status(400).json({ error: 'P.No/O.No and password required' });
     }
 
     try {
         const [users] = await pool.execute(
-            'SELECT P_No_O_No, Parent_Name, Email, Rank_Rate, Unit, Contact_No, Parent_CNIC, Service_Status, Status, Origin, Password_Hash, Default_Password_Changed FROM parent_beneficiary WHERE P_No_O_No = ?',
+            `SELECT P_No_O_No, Parent_Name, Email, Rank_Rate, Unit, Contact_No, Parent_CNIC,
+                    Service_Status, Status, Origin, Password_Hash, Default_Password_Changed,
+                    Must_Change_Password, Temporary_Password_Expires_At, Credential_Version
+             FROM parent_beneficiary WHERE P_No_O_No = ?`,
             [pNoONo]
         );
 
         const user = users[0];
         if (!user) {
-            console.log('Login failed - User not found for P.No/O.No:', pNoONo);
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 
-        console.log('Login - User found:', user.P_No_O_No, 'Has password hash:', !!user.Password_Hash);
-
-        // Check if user has password set
+        // Imported accounts are activated only through an audited one-time credential reset.
         if (!user.Password_Hash) {
-            // Admin-created user without password - check default password format: 12345@PN_number
-            const defaultPassword = `12345@${pNoONo}`;
-            if (password === defaultPassword) {
-                // Hash and set the default password so they can login normally next time
-                const hashedPassword = await bcrypt.hash(defaultPassword, 12);
-                await pool.execute(
-                    'UPDATE parent_beneficiary SET Password_Hash = ?, Default_Password_Changed = false WHERE P_No_O_No = ?',
-                    [hashedPassword, pNoONo]
-                );
-                // Continue with login flow below
-            } else {
-                return res.status(401).json({ error: 'Invalid credentials. Default password format: 12345@YourPNNumber' });
-            }
-        } else {
-            // User has a password set - verify it
-            const isPasswordValid = await bcrypt.compare(password, user.Password_Hash);
-            if (!isPasswordValid) {
-                return res.status(401).json({ error: 'Invalid credentials' });
-            }
+            return res.status(403).json({ error: 'Portal access has not been activated. Contact authorized staff for a one-time password.', status: 'activation_required' });
         }
 
-        console.log('Login - User status from DB:', user.Status, 'for P.No:', pNoONo);
-        
+        const isPasswordValid = await bcrypt.compare(password, user.Password_Hash);
+        if (!isPasswordValid) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
+        if (user.Must_Change_Password && (!user.Temporary_Password_Expires_At || new Date(user.Temporary_Password_Expires_At).getTime() <= Date.now())) {
+            return res.status(403).json({ error: 'This one-time password has expired. Contact authorized staff for another.', status: 'temporary_password_expired' });
+        }
+
         if (user.Status === 'pending') {
-            return res.status(403).json({ error: 'Account pending admin approval', status: 'pending' });
+            return res.status(403).json({
+                error: 'Your account is pending authorization from PNBA staff. Please try again after it has been reviewed.',
+                status: 'pending'
+            });
         }
 
         if (user.Status === 'rejected') {
             return res.status(403).json({ error: 'Account was rejected. Contact admin.', status: 'rejected' });
+        }
+        if (user.Status === 'blocked') {
+            return res.status(403).json({ error: 'Online access is blocked. Contact the office.', status: 'blocked' });
         }
 
         // Log login attempt (you may need to create this table if it doesn't exist)
@@ -321,7 +414,8 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
                 userId: user.P_No_O_No, 
                 pNoONo: user.P_No_O_No,
                 email: user.Email,
-                parentName: user.Parent_Name
+                parentName: user.Parent_Name,
+                credentialVersion: Number(user.Credential_Version)
             },
             process.env.PORTAL_JWT_SECRET,
             { expiresIn: '24h' }
@@ -341,7 +435,8 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
                 serviceStatus: user.Service_Status,
                 status: user.Status,
                 origin: user.Origin,
-                defaultPasswordChanged: user.Default_Password_Changed
+                defaultPasswordChanged: user.Default_Password_Changed,
+                mustChangePassword: Boolean(user.Must_Change_Password)
             }
         });
 
@@ -351,43 +446,6 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     }
 });
 
-// Force password change on first login
-app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
-    const { currentPassword, newPassword } = req.body;
-
-    if (!currentPassword || !newPassword || newPassword.length < 8) {
-        return res.status(400).json({ error: 'Invalid password data' });
-    }
-
-    try {
-        const [users] = await pool.execute(
-            'SELECT Password_Hash FROM parent_beneficiary WHERE P_No_O_No = ?',
-            [req.user.pNoONo]
-        );
-
-        const validCurrent = await verifyPassword(currentPassword, users[0].password_hash);
-        if (!validCurrent) {
-            return res.status(401).json({ error: 'Current password is incorrect' });
-        }
-
-        const newHash = await hashPassword(newPassword);
-        
-        await pool.execute(
-            `UPDATE Portal_Users SET password_hash = ?, default_password_changed = TRUE WHERE user_id = ?`,
-            [newHash, req.user.userId]
-        );
-
-        await pool.execute(
-            `INSERT INTO Portal_Audit_Log (user_id, action, ip_address, details) VALUES (?, ?, ?, ?)`,
-            [req.user.userId, 'PASSWORD_CHANGED', req.ip, '{}']
-        );
-
-        res.json({ message: 'Password updated successfully' });
-
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to change password' });
-    }
-});
 
 // ==================== CHILD MANAGEMENT ====================
 
@@ -395,13 +453,23 @@ app.post('/api/children', authenticateToken, async (req, res) => {
     const { childName, age, cnicBformNo, diseaseDisability, disabilityCategory, school } = req.body;
 
     try {
+        if (!childName?.trim() || !cnicBformNo?.trim() || !disabilityCategory?.trim() || !school?.trim()) {
+            return res.status(400).json({ error: 'Child name, CNIC/B-Form, category, and school are required' });
+        }
+        await Promise.all([
+            assertConfiguredValue('category', disabilityCategory),
+            assertConfiguredValue('school', school)
+        ]);
         // Insert child directly with pending status
         console.log('Adding child for parent:', req.user.pNoONo);
         const [result] = await pool.execute(
-            `INSERT INTO dependent_children (P_No_O_No, Child_Name, Age, CNIC_BForm_No, Disease_Disability, Disability_Category, School, Status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+            `INSERT INTO dependent_children
+              (P_No_O_No, Child_Name, Age, CNIC_BForm_No, Disease_Disability,
+               Parent_Selected_Category, Approved_Category, Disability_Category, School, Status)
+             VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, 'pending')`,
             [req.user.pNoONo, childName, age, cnicBformNo, diseaseDisability, disabilityCategory, school]
         );
+        await refreshChildCompleteness(pool, result.insertId);
         
         console.log('Child added with ID:', result.insertId, 'Status: pending');
 
@@ -411,6 +479,7 @@ app.post('/api/children', authenticateToken, async (req, res) => {
             status: 'pending'
         });
     } catch (error) {
+        if (error.status === 400) return res.status(400).json({ error: error.message });
         console.error('Failed to add child:', error);
         res.status(500).json({ error: 'Failed to add child' });
     }
@@ -420,7 +489,8 @@ app.get('/api/children', authenticateToken, async (req, res) => {
     try {
         const [children] = await pool.execute(
             `SELECT Child_ID, Child_Name, Age, CNIC_BForm_No, Disease_Disability, 
-                    Disability_Category, School, Disability_Certificate_No, Authority, Status
+                    Disability_Category, Parent_Selected_Category, Approved_Category,
+                    School, Disability_Certificate_No, Authority, Status
              FROM dependent_children 
              WHERE P_No_O_No = ? 
              ORDER BY Child_ID DESC`,
@@ -434,7 +504,9 @@ app.get('/api/children', authenticateToken, async (req, res) => {
             age: child.Age,
             cnic_bform_no: child.CNIC_BForm_No,
             disease_disability: child.Disease_Disability,
-            disability_category: child.Disability_Category,
+            disability_category: child.Approved_Category || child.Parent_Selected_Category,
+            parent_selected_category: child.Parent_Selected_Category,
+            approved_category: child.Approved_Category,
             school: child.School,
             status: child.Status,
             assessment_performa: null, // These would be stored in separate tables
@@ -725,22 +797,36 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
     try {
         const [users] = await pool.execute(
             `SELECT P_No_O_No, Parent_Name, Email, Rank_Rate, Unit,
-                    Contact_No, CNIC, Service_Status, Status, Origin,
-                    Default_Password_Changed, Created_At, Approved_At, Address
+                    Admin_Authority, Contact_No, Parent_CNIC, Service_Status, Status, Origin,
+                    Default_Password_Changed, Created_At, Approved_At, Address,
+                    Record_State, Missing_Fields, Is_Provisional, Block_Reason
              FROM parent_beneficiary WHERE P_No_O_No = ?`,
             [req.user.pNoONo]
         );
 
+        if (users.length === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
         const user = users[0];
+        const [changeRequests] = await pool.execute(
+            `SELECT id, proposed_values, status, parent_message, review_reason, submitted_at, reviewed_at
+             FROM scms_parent_change_requests WHERE parent_p_no_o_no = ?
+             ORDER BY submitted_at DESC LIMIT 10`,
+            [req.user.pNoONo]
+        );
+        const missingFields = typeof user.Missing_Fields === 'string' ? JSON.parse(user.Missing_Fields) : user.Missing_Fields || [];
         res.json({
+            // snake_case keys (used by Profile.jsx)
             user_id: user.P_No_O_No,
             email: user.Email,
             parent_name: user.Parent_Name,
             p_no_o_no: user.P_No_O_No,
             rank_rate: user.Rank_Rate,
             unit: user.Unit,
+            admin_authority: user.Admin_Authority,
             contact_no: user.Contact_No,
-            cnic: user.CNIC,
+            cnic: user.Parent_CNIC,
             service_status: user.Service_Status,
             status: user.Status,
             origin: user.Origin,
@@ -748,106 +834,190 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
             created_at: user.Created_At,
             approved_at: user.Approved_At,
             address: user.Address,
+            record_state: user.Record_State,
+            missing_fields: missingFields,
+            is_provisional: Boolean(user.Is_Provisional),
+            block_reason: user.Block_Reason,
+            change_requests: changeRequests.map(request => ({
+                id: request.id,
+                proposedValues: request.proposed_values,
+                status: request.status,
+                parentMessage: request.parent_message || '',
+                reviewReason: request.review_reason || '',
+                submittedAt: request.submitted_at,
+                reviewedAt: request.reviewed_at
+            })),
             tag: user.Origin === 'admin_created' ? 'Admin Created' : 'New User',
-            tagColor: user.Origin === 'admin_created' ? '#1976d2' : '#ed6c02'
+            tagColor: user.Origin === 'admin_created' ? '#1976d2' : '#ed6c02',
+            // camelCase aliases (used by AccountManagement.jsx)
+            pNoONo: user.P_No_O_No,
+            parentName: user.Parent_Name,
+            contactNo: user.Contact_No,
+            rankRate: user.Rank_Rate,
+            unit: user.Unit,
+            adminAuthority: user.Admin_Authority,
+            serviceStatus: user.Service_Status,
+            createdAt: user.Created_At,
+            approvedAt: user.Approved_At
         });
 
     } catch (error) {
+        console.error('Profile fetch error:', error);
         res.status(500).json({ error: 'Failed to load profile' });
+    }
+});
+
+app.get('/api/profile/configuration', authenticateToken, async (_req, res) => {
+    try {
+        const policies = await loadParentFieldPolicies(pool);
+        const [rows] = await pool.execute(
+            `SELECT item_type, code, name FROM scms_reference_items
+             WHERE is_active = TRUE ORDER BY item_type, sort_order, name`
+        );
+        const references = Object.fromEntries(REFERENCE_TYPES.map(type => [type, []]));
+        for (const row of rows) {
+            if (references[row.item_type]) references[row.item_type].push({ code: row.code, name: row.name });
+        }
+        res.json({ policies, references });
+    } catch (error) {
+        console.error('Profile configuration fetch failed:', error);
+        res.status(500).json({ error: 'Profile configuration is unavailable' });
     }
 });
 
 app.get('/api/status', authenticateToken, async (req, res) => {
     try {
         const [user] = await pool.execute(
-            'SELECT Status FROM parent_beneficiary WHERE P_No_O_No = ?',
+            'SELECT Status, Approved_At, Block_Reason FROM parent_beneficiary WHERE P_No_O_No = ?',
             [req.user.pNoONo]
         );
-
-        // For now, return empty requests since Approval_Requests table may not exist in main DB
+        const [registrationRequests] = await pool.execute(
+            `SELECT id, request_type, status, admin_response, created_at, processed_at
+             FROM Approval_Requests WHERE user_id = ? ORDER BY created_at DESC`,
+            [req.user.pNoONo]
+        );
+        const [changeRequests] = await pool.execute(
+            `SELECT id, status, proposed_values, parent_message, review_reason,
+                    submitted_at AS created_at, reviewed_at AS processed_at
+             FROM scms_parent_change_requests WHERE parent_p_no_o_no = ? ORDER BY submitted_at DESC`,
+            [req.user.pNoONo]
+        );
         res.json({ 
             accountStatus: { 
                 status: user[0]?.Status || 'unknown', 
-                admin_notes: '', 
-                approved_at: null 
+                admin_notes: user[0]?.Block_Reason || '',
+                approved_at: user[0]?.Approved_At || null
             }, 
-            requests: [] 
+            requests: [
+                ...registrationRequests,
+                ...changeRequests.map(request => ({ ...request, request_type: 'parent_field_change', admin_response: request.review_reason }))
+            ]
         });
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch status' });
     }
 });
 
-// GET: Profile information for account management
-app.get('/api/profile', authenticateToken, async (req, res) => {
-    try {
-        const [user] = await pool.execute(
-            `SELECT P_No_O_No, Parent_Name, Email, Contact_No, Parent_CNIC, Rank_Rate, Unit,
-                   Service_Status, Status, Origin, Created_At, Approved_At
-            FROM parent_beneficiary WHERE P_No_O_No = ?`,
-            [req.user.pNoONo]
-        );
-
-        if (user.length === 0) {
-            return res.status(404).json({ error: 'User not found' });
-        }
-
-        const profile = user[0];
-        res.json({
-            pNoONo: profile.P_No_O_No,
-            parentName: profile.Parent_Name,
-            email: profile.Email,
-            contactNo: profile.Contact_No,
-            cnic: profile.Parent_CNIC,
-            rankRate: profile.Rank_Rate,
-            unit: profile.Unit,
-            serviceStatus: profile.Service_Status,
-            status: profile.Status,
-            origin: profile.Origin,
-            createdAt: profile.Created_At,
-            approvedAt: profile.Approved_At
-        });
-    } catch (error) {
-        console.error('Profile fetch error:', error);
-        res.status(500).json({ error: 'Failed to fetch profile' });
-    }
-});
+// NOTE: Duplicate /api/profile route removed — merged into the single handler above
 
 // PUT: Update profile information
 app.put('/api/profile/update', authenticateToken, async (req, res) => {
+    const connection = await pool.getConnection();
     try {
-        const { email, contactNo, address } = req.body;
         const pNoONo = req.user.pNoONo;
-
-        // Build dynamic update query
-        const updates = [];
-        const values = [];
-
-        if (email !== undefined) {
-            updates.push('Email = ?');
-            values.push(email);
-        }
-        if (contactNo !== undefined) {
-            updates.push('Contact_No = ?');
-            values.push(contactNo);
-        }
-        if (address !== undefined) {
-            updates.push('Address = ?');
-            values.push(address);
+        const policies = await loadParentFieldPolicies(connection);
+        await connection.beginTransaction();
+        const [parentRows] = await connection.query('SELECT * FROM parent_beneficiary WHERE P_No_O_No = ? FOR UPDATE', [pNoONo]);
+        const parent = parentRows[0];
+        if (!parent) {
+            const error = new Error('Parent account not found');
+            error.status = 404;
+            throw error;
         }
 
-        if (updates.length === 0) {
-            return res.status(400).json({ error: 'No fields to update' });
+        const directChanges = {};
+        const approvalChanges = {};
+        const currentApprovalValues = {};
+        for (const policy of policies) {
+            if (!Object.prototype.hasOwnProperty.call(req.body, policy.fieldCode)) continue;
+            const column = PARENT_FIELD_COLUMNS[policy.fieldCode];
+            if (!column || policy.updateMode === 'locked') continue;
+            const normalized = typeof req.body[policy.fieldCode] === 'string' ? req.body[policy.fieldCode].trim() : '';
+            if (policy.isRequired && !normalized) {
+                const error = new Error(`${policy.label} is required`);
+                error.status = 400;
+                throw error;
+            }
+            if (policy.fieldCode === 'cnic' && normalized && !/^\d{13}$/.test(normalized.replace(/\D/g, ''))) {
+                const error = new Error('CNIC must contain exactly 13 digits');
+                error.status = 400;
+                throw error;
+            }
+            if (policy.fieldCode === 'email' && normalized && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+                const error = new Error('Enter a valid email address');
+                error.status = 400;
+                throw error;
+            }
+            if (policy.referenceType) await assertConfiguredValue(policy.referenceType, normalized, { optional: !policy.isRequired });
+            if (String(parent[column] || '') === normalized) continue;
+            if (policy.updateMode === 'direct') directChanges[policy.fieldCode] = normalized || null;
+            if (policy.updateMode === 'approval') {
+                approvalChanges[policy.fieldCode] = normalized || null;
+                currentApprovalValues[policy.fieldCode] = parent[column] ?? null;
+            }
+        }
+        if (Object.keys(directChanges).length === 0 && Object.keys(approvalChanges).length === 0) {
+            const error = new Error('No fields to update');
+            error.status = 400;
+            throw error;
         }
 
-        const updateQuery = `UPDATE parent_beneficiary SET ${updates.join(', ')} WHERE P_No_O_No = ?`;
-        values.push(pNoONo);
+        if (Object.keys(directChanges).length > 0) {
+            const entries = Object.entries(directChanges);
+            await connection.query(
+                `UPDATE parent_beneficiary SET ${entries.map(([field]) => `${PARENT_FIELD_COLUMNS[field]} = ?`).join(', ')} WHERE P_No_O_No = ?`,
+                [...entries.map(([, value]) => value), pNoONo]
+            );
+        }
 
-        await pool.execute(updateQuery, values);
-        res.json({ message: 'Profile updated successfully' });
+        let requestId = null;
+        if (Object.keys(approvalChanges).length > 0) {
+            const [existing] = await connection.query(
+                `SELECT id FROM scms_parent_change_requests
+                 WHERE parent_p_no_o_no = ? AND status = 'pending' FOR UPDATE`,
+                [pNoONo]
+            );
+            if (existing.length > 0) {
+                const error = new Error('A profile change request is already pending review.');
+                error.status = 409;
+                throw error;
+            }
+            const [result] = await connection.query(
+                `INSERT INTO scms_parent_change_requests
+                  (parent_p_no_o_no, current_values, proposed_values, parent_message)
+                 VALUES (?, ?, ?, ?)`,
+                [pNoONo, JSON.stringify(currentApprovalValues), JSON.stringify(approvalChanges), String(req.body.parentMessage || '').trim().slice(0, 1000) || null]
+            );
+            requestId = Number(result.insertId);
+            if (parent.Status === 'changes_required') {
+                await connection.query("UPDATE parent_beneficiary SET Status = 'pending' WHERE P_No_O_No = ?", [pNoONo]);
+            }
+        }
+        await refreshParentCompleteness(connection, pNoONo);
+        await connection.commit();
+        res.json({
+            message: requestId ? 'Direct fields were saved and controlled changes were submitted for review.' : 'Profile updated successfully.',
+            directFields: Object.keys(directChanges),
+            requestId
+        });
     } catch (error) {
+        await connection.rollback();
+        if (error.status) return res.status(error.status).json({ error: error.message });
+        if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'That email or identifier is already used by another account.' });
         console.error('Profile update error:', error);
         res.status(500).json({ error: 'Failed to update profile' });
+    } finally {
+        connection.release();
     }
 });
 
@@ -881,7 +1051,9 @@ app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
         if (!user.Password_Hash) {
             const hashedPassword = await bcrypt.hash(newPassword, 12);
             await pool.execute(
-                'UPDATE parent_beneficiary SET Password_Hash = ?, Default_Password_Changed = true WHERE P_No_O_No = ?',
+                `UPDATE parent_beneficiary SET Password_Hash = ?, Default_Password_Changed = true,
+                 Must_Change_Password = false, Temporary_Password_Expires_At = NULL,
+                 Credential_Version = Credential_Version + 1 WHERE P_No_O_No = ?`,
                 [hashedPassword, pNoONo]
             );
             res.json({ message: 'Password set successfully' });
@@ -897,8 +1069,15 @@ app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
         // Hash and update new password
         const hashedPassword = await bcrypt.hash(newPassword, 12);
         await pool.execute(
-            'UPDATE parent_beneficiary SET Password_Hash = ?, Default_Password_Changed = true WHERE P_No_O_No = ?',
-            [hashedPassword, true, pNoONo]
+            `UPDATE parent_beneficiary SET Password_Hash = ?, Default_Password_Changed = true,
+             Must_Change_Password = false, Temporary_Password_Expires_At = NULL,
+             Credential_Version = Credential_Version + 1 WHERE P_No_O_No = ?`,
+            [hashedPassword, pNoONo]
+        );
+        await pool.execute(
+            `INSERT INTO scms_parent_credential_events (p_no_o_no, event_type)
+             VALUES (?, 'password_changed')`,
+            [pNoONo]
         );
 
         res.json({ message: 'Password changed successfully' });
@@ -945,7 +1124,6 @@ app.post('/api/parent/banking/add', authenticateToken, async (req, res) => {
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [req.user.pNoONo, bank_name, account_title, account_number, branch_code, branch_address, iban, routing_number, cnic_of_account_holder, bank_name_branch]
         );
-        
         // Fetch the newly created banking details to return to frontend
         const [newBankingDetails] = await pool.execute(
             'SELECT * FROM banking_details WHERE Account_ID = ?',
@@ -1040,53 +1218,106 @@ app.post('/api/sync/admin-created-parent', async (req, res) => {
 
     try {
         const [existing] = await pool.execute(
-            'SELECT user_id FROM Portal_Users WHERE p_no_o_no = ?',
+            'SELECT P_No_O_No FROM parent_beneficiary WHERE P_No_O_No = ?',
             [pNoONo]
         );
 
-        const defaultPassword = generateDefaultPassword(pNoONo);
-        const hashedPassword = await hashPassword(defaultPassword);
+        const oneTimePassword = generateOneTimePassword();
+        const hashedPassword = await hashPassword(oneTimePassword);
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
         if (existing.length > 0) {
             await pool.execute(
-                `UPDATE Portal_Users SET 
-                 parent_name = ?, rank_rate = ?, unit = ?, contact_no = ?,
-                 service_status = ?, email = ?, password_hash = ?, status = 'approved', 
-                 origin = 'admin_created', created_by_admin_id = ?, default_password_changed = FALSE,
-                 approved_at = NOW(), approved_by = ?
-                 WHERE p_no_o_no = ?`,
-                [parentName, rankRate, unit, contactNo, serviceStatus, email || `${pNoONo}@system.local`, 
-                 hashedPassword, adminId, `admin_${adminId}`, pNoONo]
+                `UPDATE parent_beneficiary SET 
+                 Parent_Name = ?, Rank_Rate = ?, Unit = ?, Contact_No = ?,
+                 Service_Status = ?, Email = ?, Password_Hash = ?, Status = 'approved', 
+                 Origin = 'admin_created', Default_Password_Changed = FALSE,
+                 Must_Change_Password = TRUE, Temporary_Password_Expires_At = ?,
+                 Credential_Version = Credential_Version + 1,
+                 Approved_At = NOW()
+                 WHERE P_No_O_No = ?`,
+                [parentName, rankRate, unit, contactNo, serviceStatus, email || `${pNoONo}@system.local`,
+                 hashedPassword, expiresAt, pNoONo]
+            );
+            await syncParentIdentifiers(pool, pNoONo, cnic, { source: 'staff_activation', verified: true });
+            await refreshParentCompleteness(pool, pNoONo);
+            await pool.execute(
+                `INSERT INTO scms_parent_credential_events (p_no_o_no, event_type, actor_user_id, expires_at)
+                 VALUES (?, 'one_time_password_issued', ?, ?)`,
+                [pNoONo, adminId || null, expiresAt]
             );
             
             return res.json({ 
                 message: 'Parent updated in portal', 
                 loginId: pNoONo,
-                defaultPassword
+                oneTimePassword,
+                expiresAt
             });
         }
 
-        const [result] = await pool.execute(
-            `INSERT INTO Portal_Users 
-             (email, password_hash, parent_name, p_no_o_no, rank_rate, unit, 
-              contact_no, cnic, service_status, status, origin, 
-              created_by_admin_id, default_password_changed, approved_at, approved_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', 'admin_created', ?, FALSE, NOW(), ?)`,
-            [email || `${pNoONo}@system.local`, hashedPassword, parentName, pNoONo, 
-             rankRate, unit, contactNo, cnic, serviceStatus, adminId, `admin_${adminId}`]
+        await pool.execute(
+            `INSERT INTO parent_beneficiary 
+             (P_No_O_No, Parent_Name, Rank_Rate, Unit, Contact_No, Parent_CNIC,
+              Service_Status, Email, Password_Hash, Status, Origin,
+              Default_Password_Changed, Must_Change_Password, Temporary_Password_Expires_At, Approved_At)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', 'admin_created', FALSE, TRUE, ?, NOW())`,
+            [pNoONo, parentName, rankRate, unit, contactNo, cnic,
+             serviceStatus, email || `${pNoONo}@system.local`, hashedPassword, expiresAt]
+        );
+        await syncParentIdentifiers(pool, pNoONo, cnic, { source: 'staff_activation', verified: true });
+        await refreshParentCompleteness(pool, pNoONo);
+        await pool.execute(
+            `INSERT INTO scms_parent_credential_events (p_no_o_no, event_type, actor_user_id, expires_at)
+             VALUES (?, 'one_time_password_issued', ?, ?)`,
+            [pNoONo, adminId || null, expiresAt]
         );
 
         res.status(201).json({
             message: 'Parent created in portal',
-            portalUserId: result.insertId,
             loginId: pNoONo,
-            defaultPassword,
-            note: 'Parent must change password on first login'
+            oneTimePassword,
+            expiresAt,
+            note: 'This password is shown once, expires in 24 hours, and must be changed at first login.'
         });
 
     } catch (error) {
         console.error('Admin sync error:', error);
         res.status(500).json({ error: 'Sync failed' });
+    }
+});
+
+app.post('/api/sync/reset-parent-password', async (req, res) => {
+    const apiKey = req.headers['x-api-key'];
+    if (apiKey !== process.env.ADMIN_API_KEY) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { pNoONo, actorUserId } = req.body;
+    if (!pNoONo) return res.status(400).json({ error: 'P.No/O.No is required' });
+
+    try {
+        const [parents] = await pool.execute(
+            'SELECT P_No_O_No FROM parent_beneficiary WHERE P_No_O_No = ?',
+            [pNoONo]
+        );
+        if (parents.length === 0) return res.status(404).json({ error: 'Parent account not found' });
+
+        const oneTimePassword = generateOneTimePassword();
+        const passwordHash = await hashPassword(oneTimePassword);
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        await pool.execute(
+            `UPDATE parent_beneficiary SET Password_Hash = ?, Must_Change_Password = TRUE,
+             Default_Password_Changed = FALSE, Temporary_Password_Expires_At = ?,
+             Credential_Version = Credential_Version + 1 WHERE P_No_O_No = ?`,
+            [passwordHash, expiresAt, pNoONo]
+        );
+        await pool.execute(
+            `INSERT INTO scms_parent_credential_events (p_no_o_no, event_type, actor_user_id, expires_at)
+             VALUES (?, 'one_time_password_issued', ?, ?)`,
+            [pNoONo, actorUserId || null, expiresAt]
+        );
+        res.json({ loginId: pNoONo, oneTimePassword, expiresAt });
+    } catch (error) {
+        console.error('Parent password reset failed:', error);
+        res.status(500).json({ error: 'Unable to issue a one-time password' });
     }
 });
 
@@ -1111,6 +1342,13 @@ app.get('/api/sync/pending', async (req, res) => {
         // Fetch children with all statuses
         const [children] = await pool.execute(
             `SELECT * FROM dependent_children ORDER BY Child_ID DESC`
+        );
+        const [fieldChanges] = await pool.execute(
+            `SELECT c.*, p.Parent_Name, p.Email, p.Parent_CNIC, p.Origin,
+                    p.Rank_Rate, p.Unit, p.Service_Status
+             FROM scms_parent_change_requests c
+             INNER JOIN parent_beneficiary p ON p.P_No_O_No = c.parent_p_no_o_no
+             ORDER BY c.submitted_at DESC`
         );
         
         // Fetch all parents for matching
@@ -1145,7 +1383,9 @@ app.get('/api/sync/pending', async (req, res) => {
                     cnicBformNo: child.CNIC_BForm_No,
                     school: child.School,
                     diseaseDisability: child.Disease_Disability,
-                    disabilityCategory: child.Disability_Category,
+                    disabilityCategory: child.Parent_Selected_Category || child.Disability_Category,
+                    parentSelectedCategory: child.Parent_Selected_Category,
+                    approvedCategory: child.Approved_Category,
                     parentName: matchingParent?.Parent_Name
                 },
                 status: child.Status,
@@ -1159,7 +1399,30 @@ app.get('/api/sync/pending', async (req, res) => {
         });
         
         // Combine parent requests and child requests
-        const allRequests = [...requests, ...childrenAsRequests];
+        const fieldChangeRequests = fieldChanges.map(change => ({
+            id: change.id,
+            user_id: change.parent_p_no_o_no,
+            request_type: 'parent_field_change',
+            payload: {
+                currentValues: change.current_values,
+                proposedValues: change.proposed_values,
+                parentMessage: change.parent_message
+            },
+            status: change.status,
+            created_at: change.submitted_at,
+            processed_at: change.reviewed_at,
+            admin_response: change.review_reason,
+            p_no_o_no: change.parent_p_no_o_no,
+            email: change.Email,
+            parent_name: change.Parent_Name,
+            cnic: change.Parent_CNIC,
+            origin: change.Origin,
+            rank_rate: change.Rank_Rate,
+            unit: change.Unit,
+            service_status: change.Service_Status
+        }));
+
+        const allRequests = [...requests, ...childrenAsRequests, ...fieldChangeRequests];
         
         res.json(allRequests);
     } catch (error) {
@@ -1197,20 +1460,23 @@ app.post('/api/sync/approval', async (req, res) => {
         return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const { requestId, action, adminNotes, mainDbChildId } = req.body;
+    const { requestId, requestType, action, adminNotes, mainDbChildId, approvedCategory } = req.body;
 
     try {
         // First try to find in Approval_Requests table
-        let [requests] = await pool.execute(
-            'SELECT * FROM Approval_Requests WHERE id = ?',
-            [requestId]
-        );
+        let requests = [];
+        if (requestType !== 'child_addition') {
+            [requests] = await pool.execute(
+                'SELECT * FROM Approval_Requests WHERE id = ?',
+                [requestId]
+            );
+        }
 
         let request = requests[0];
         let isChildFromChildrenTable = false;
 
         // If not found and it might be a child addition, check dependent_children
-        if (!request) {
+        if (!request && requestType !== 'parent_registration') {
             const [children] = await pool.execute(
                 'SELECT * FROM dependent_children WHERE Child_ID = ?',
                 [requestId]
@@ -1243,13 +1509,29 @@ app.post('/api/sync/approval', async (req, res) => {
                 // Update the child status in dependent_children
                 console.log('Sync: Updating child status to approved for ID:', requestId);
                 await pool.execute(
-                    'UPDATE dependent_children SET Status = ? WHERE Child_ID = ?',
-                    ['approved', requestId]
+                    `UPDATE dependent_children SET Status = 'approved', Approved_Category = ?,
+                     Disability_Category = ?, Category = ? WHERE Child_ID = ?`,
+                    [approvedCategory || null, approvedCategory || null, approvedCategory || null, requestId]
                 );
                 console.log('Child addition sync completed for request ID:', requestId, 'Main DB Child ID:', mainDbChildId);
             }
+        } else if (action === 'changes_required') {
+            if (request.request_type === 'parent_registration') {
+                await pool.execute("UPDATE parent_beneficiary SET Status = 'changes_required' WHERE P_No_O_No = ?", [request.user_id]);
+            } else if (request.request_type === 'child_addition') {
+                await pool.execute("UPDATE dependent_children SET Status = 'changes_required' WHERE Child_ID = ?", [requestId]);
+            }
+        } else if (action === 'block') {
+            if (request.request_type === 'parent_registration') {
+                await pool.execute(
+                    `UPDATE parent_beneficiary SET Status = 'blocked', Block_Reason = ?, Blocked_At = NOW()
+                     WHERE P_No_O_No = ?`,
+                    [adminNotes || 'Contact the office', request.user_id]
+                );
+            } else if (request.request_type === 'child_addition') {
+                await pool.execute("UPDATE dependent_children SET Status = 'rejected' WHERE Child_ID = ?", [requestId]);
+            }
         } else {
-            // Handle rejection
             if (request.request_type === 'parent_registration') {
                 await pool.execute(
                     'UPDATE parent_beneficiary SET Status = ? WHERE P_No_O_No = ?',
@@ -1266,8 +1548,9 @@ app.post('/api/sync/approval', async (req, res) => {
         // Only update Approval_Requests if it exists there (not for children from dependent_children)
         if (!isChildFromChildrenTable) {
             await pool.execute(
-                'UPDATE Approval_Requests SET status = ?, processed_by = ?, processed_at = NOW() WHERE id = ?',
-                [action === 'approve' ? 'approved' : 'rejected', 'admin', requestId]
+                `UPDATE Approval_Requests SET status = ?, admin_response = ?, processed_by = ?, processed_at = NOW()
+                 WHERE id = ?`,
+                [action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : action, adminNotes || null, 'admin', requestId]
             );
         }
 

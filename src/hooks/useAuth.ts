@@ -1,24 +1,31 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 import { auth } from '@/services/auth';
-import type { User, UserRole } from '@/types';
+import type { UserRole } from '@/types';
+
+const subscribeToAuth = (onStoreChange: () => void) => auth.subscribe(() => onStoreChange());
+const getAuthSnapshot = () => auth.getState();
 
 export function useAuth() {
-  const [state, setState] = useState(auth.getState());
+  const state = useSyncExternalStore(
+    subscribeToAuth,
+    getAuthSnapshot,
+    getAuthSnapshot
+  );
 
-  useEffect(() => {
-    return auth.subscribe(setState);
-  }, []);
-
-  const login = useCallback((username: string, password: string): User | null => {
+  const login = useCallback((username: string, password: string) => {
     return auth.login(username, password);
   }, []);
 
   const logout = useCallback(() => {
-    auth.logout();
+    return auth.logout();
+  }, []);
+
+  const changePassword = useCallback((currentPassword: string, newPassword: string) => {
+    return auth.changePassword(currentPassword, newPassword);
   }, []);
 
   const hasPermission = useCallback((permission: string): boolean => {
-    return auth.hasPermission(permission as any);
+    return auth.hasPermission(permission);
   }, []);
 
   const canCreate = useCallback((table: string): boolean => {
@@ -40,9 +47,11 @@ export function useAuth() {
   return {
     user: state.user,
     isAuthenticated: state.isAuthenticated,
+    isLoading: state.isLoading,
     role: state.role,
     login,
     logout,
+    changePassword,
     hasPermission,
     canCreate,
     canRead,

@@ -21,6 +21,21 @@
     margin: 0;
 }
 
+.settings-subtitle,
+.settings-help {
+    color: var(--authority-text-secondary, #64748b);
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.settings-subtitle {
+    margin: 6px 0 0;
+}
+
+.settings-help {
+    margin: -8px 0 20px;
+}
+
 .back-btn {
     background: #667eea;
     color: white;
@@ -44,6 +59,11 @@
     gap: 32px;
     max-width: 1200px;
     margin: 0 auto;
+}
+
+.settings-content-single {
+    display: block;
+    max-width: 640px;
 }
 
 @media (max-width: 968px) {
