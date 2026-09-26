@@ -1,10 +1,21 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext'
-import { useTheme } from '../../context/ThemeContext'
+import RecordRequirements from './RecordRequirements'
+import PortalToast from '../PortalToast'
+
+const toFormData = record => ({
+  bank_name: record?.Bank_Name || record?.Bank_Name_Branch?.split(',')[0] || '',
+  account_title: record?.Account_Title || '',
+  account_number: record?.Account_Number || '',
+  branch_code: record?.Branch_Code || '',
+  branch_address: record?.Branch_Address || record?.Bank_Name_Branch?.split(',')[1] || '',
+  iban: record?.IBAN || '',
+  routing_number: record?.Routing_Number || '',
+  cnic_of_account_holder: record?.CNIC_of_Account_Holder || ''
+})
 
 const Banking = () => {
-  const { user, token } = useAuth()
-  const { darkMode } = useTheme()
+  const { token } = useAuth()
   const [bankingDetails, setBankingDetails] = useState(null)
   const [isEditing, setIsEditing] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -58,16 +69,7 @@ const Banking = () => {
         if (data && data.length > 0) {
           const bankingData = data[0]
           setBankingDetails(bankingData)
-          setFormData({
-            bank_name: bankingData.Bank_Name || bankingData.Bank_Name_Branch?.split(',')[0] || '',
-            account_title: bankingData.Account_Title || '',
-            account_number: bankingData.Account_Number || '',
-            branch_code: bankingData.Branch_Code || '',
-            branch_address: bankingData.Branch_Address || bankingData.Bank_Name_Branch?.split(',')[1] || '',
-            iban: bankingData.IBAN || '',
-            routing_number: bankingData.Routing_Number || '',
-            cnic_of_account_holder: bankingData.CNIC_of_Account_Holder || ''
-          })
+          setFormData(toFormData(bankingData))
         }
       } else {
         setError('Failed to fetch banking details')
@@ -109,18 +111,9 @@ const Banking = () => {
       const data = await response.json()
 
       if (response.ok) {
-        setMessage(bankingDetails ? 'Banking details updated successfully!' : 'Banking details added successfully!')
+        setMessage(bankingDetails ? 'Banking details updated. Upload fresh evidence before submitting again.' : 'Banking details saved. Upload the configured evidence next.')
         setBankingDetails(data)
-        setFormData({
-          bank_name: data.Bank_Name || data.Bank_Name_Branch?.split(',')[0] || '',
-          account_title: data.Account_Title || '',
-          account_number: data.Account_Number || '',
-          branch_code: data.Branch_Code || '',
-          branch_address: data.Branch_Address || data.Bank_Name_Branch?.split(',')[1] || '',
-          iban: data.IBAN || '',
-          routing_number: data.Routing_Number || '',
-          cnic_of_account_holder: data.CNIC_of_Account_Holder || ''
-        })
+        setFormData(toFormData(data))
         setIsEditing(false)
       } else {
         setError(data.message || 'Failed to save banking details')
@@ -140,7 +133,7 @@ const Banking = () => {
 
   const handleCancel = () => {
     if (bankingDetails) {
-      setFormData(bankingDetails)
+      setFormData(toFormData(bankingDetails))
     } else {
       setFormData({
         bank_name: '',
@@ -149,7 +142,8 @@ const Banking = () => {
         branch_code: '',
         branch_address: '',
         iban: '',
-        routing_number: ''
+        routing_number: '',
+        cnic_of_account_holder: ''
       })
     }
     setIsEditing(false)
@@ -157,39 +151,26 @@ const Banking = () => {
     setMessage('')
   }
 
-  const handleDelete = async () => {
-    if (!bankingDetails) return
-    
-    if (!confirm('Are you sure you want to delete your banking details?')) {
-      return
-    }
-
+  const submitForReview = async () => {
+    setSaving(true)
+    setError('')
+    setMessage('')
     try {
-      const response = await fetch('/api/parent/banking/delete', {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+      const response = await fetch('/api/parent/banking/submit', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
       })
-
+      const data = await response.json()
       if (response.ok) {
-        setBankingDetails(null)
-        setFormData({
-          bank_name: '',
-          account_title: '',
-          account_number: '',
-          branch_code: '',
-          branch_address: '',
-          iban: '',
-          routing_number: '',
-          cnic_of_account_holder: ''
-        })
-        setMessage('Banking details deleted successfully!')
+        setBankingDetails(data)
+        setMessage('Banking details and evidence were submitted for staff review.')
       } else {
-        setError('Failed to delete banking details')
+        setError(data.message || 'Unable to submit banking evidence.')
       }
     } catch (err) {
       setError('Network error. Please try again.')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -204,21 +185,20 @@ const Banking = () => {
 
   return (
     <div className="space-y-8">
+      <PortalToast message={message} type="success" onClose={() => setMessage('')} />
+      <PortalToast message={error} type="error" onClose={() => setError('')} duration={8000} />
       <div>
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Banking Details</h1>
         <p className="text-gray-600 dark:text-gray-400">Manage your banking information for grant payments</p>
       </div>
 
-      {message && (
-        <div className="p-4 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-lg text-green-700 dark:text-green-400 font-medium">
-          {message}
+      {bankingDetails && <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950/30">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><div className="text-sm font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">Verification status</div><div className="mt-1 text-lg font-bold capitalize text-slate-900 dark:text-white">{String(bankingDetails.Verification_Status || 'pending_evidence').replaceAll('_', ' ')}</div></div>
+          {bankingDetails.Verified_At && <div className="text-sm text-slate-600 dark:text-slate-300">Verified {new Date(bankingDetails.Verified_At).toLocaleString()}</div>}
         </div>
-      )}
-      {error && (
-        <div className="p-4 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400 font-medium">
-          {error}
-        </div>
-      )}
+        {bankingDetails.Review_Reason && <p className="mt-3 rounded-lg bg-white/70 p-3 text-sm text-rose-700 dark:bg-slate-900/50 dark:text-rose-300"><strong>Staff response:</strong> {bankingDetails.Review_Reason}</p>}
+      </div>}
 
       {!bankingDetails && !isEditing && (
         <div className="text-center p-12 bg-gray-50 dark:bg-gray-800 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-600">
@@ -247,9 +227,6 @@ const Banking = () => {
                 <div className="flex gap-2">
                   <button onClick={handleEdit} className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white font-medium rounded-lg transition-colors">
                     Edit
-                  </button>
-                  <button onClick={handleDelete} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors">
-                    Delete
                   </button>
                 </div>
               )}
@@ -440,6 +417,19 @@ const Banking = () => {
           )}
         </div>
       )}
+
+      {bankingDetails && !isEditing && <RecordRequirements
+        token={token}
+        ownerType="banking"
+        ownerId={bankingDetails.Account_ID}
+        recordName="your banking record"
+        validAfter={bankingDetails.Evidence_Required_From}
+        readOnly={!['pending_evidence', 'changes_required'].includes(bankingDetails.Verification_Status || 'pending_evidence')}
+        identifier={`Account record ${bankingDetails.Account_ID}`}
+        onFinish={() => void submitForReview()}
+        finishLabel={saving ? 'Submitting...' : 'Submit banking evidence for review'}
+        showNavigation={['pending_evidence', 'changes_required'].includes(bankingDetails.Verification_Status || 'pending_evidence')}
+      />}
     </div>
   )
 }

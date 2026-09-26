@@ -72,7 +72,16 @@ function normalizeBanking(row: any): BankingDetails {
     IBAN: row.IBAN,
     Routing_Number: row.Routing_Number,
     CNIC_of_Account_Holder: row.CNIC_of_Account_Holder,
-    Bank_Name_Branch: row.Bank_Name_Branch
+    Bank_Name_Branch: row.Bank_Name_Branch,
+    Verification_Status: row.Verification_Status,
+    Review_Reason: row.Review_Reason,
+    Verified_By: row.Verified_By == null ? undefined : toNumber(row.Verified_By),
+    Verified_At: row.Verified_At,
+    Submitted_At: row.Submitted_At,
+    Evidence_Required_From: row.Evidence_Required_From,
+    Updated_At: row.Updated_At,
+    Row_Version: row.Row_Version == null ? undefined : toNumber(row.Row_Version),
+    Is_Archived: Boolean(row.Is_Archived)
   };
 }
 

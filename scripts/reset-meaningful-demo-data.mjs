@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
+import crypto from 'crypto';
 import mysql from 'mysql2/promise';
 import 'dotenv/config';
 import { runMigrations } from '../server/migrations.js';
@@ -38,6 +39,8 @@ await fs.writeFile(backupPath, JSON.stringify(backup, (_key, value) =>
 2));
 
 const clearTables = [
+  'scms_payment_confirmations', 'scms_payment_lines', 'scms_payment_batches', 'scms_fiscal_budgets',
+  'scms_banking_history',
   'scms_messages', 'scms_message_threads', 'scms_document_reviews', 'scms_document_files',
   'scms_document_requirements', 'scms_document_type_versions', 'scms_document_types',
   'scms_form_submissions', 'scms_form_template_versions', 'scms_form_templates',
@@ -173,6 +176,50 @@ try {
        SELECT P_No_O_No, 'Meezan Bank', Parent_Name, ?, '0101', 'Karachi Main Branch', ?, Parent_CNIC, 'Meezan Bank, Karachi Main Branch'
        FROM Parent_Beneficiary WHERE P_No_O_No = ?`,
       [`001000000${index + 1}`, `PK36MEZN000000001000000${index + 1}`, pno],
+    );
+  }
+
+  const bankingEvidenceDefinition = {
+    instructions: 'Upload a clear bank certificate, cancelled cheque, or account-maintenance certificate showing the account title and number.',
+    allowedMimeTypes: ['application/pdf', 'image/jpeg', 'image/png'],
+    maximumBytes: 5 * 1024 * 1024,
+    maximumFiles: 1,
+    requiresExpiry: false,
+    requiresReupload: true,
+  };
+  const definitionJson = JSON.stringify(bankingEvidenceDefinition);
+  const definitionChecksum = crypto.createHash('sha256').update(definitionJson).digest('hex');
+  const [bankDocument] = await connection.query(
+    `INSERT INTO scms_document_types
+      (code, name, description, entity_scope, fulfillment_mode, status, draft_definition,
+       current_version_number, row_version, created_by)
+     VALUES ('BANK_ACCOUNT_EVIDENCE', 'Bank Account Evidence',
+       'Proof that the configured account belongs to the beneficiary or authorized account holder.',
+       'banking', 'upload', 'published', ?, 1, 1, ?)`,
+    [definitionJson, director.id],
+  );
+  const [bankDocumentVersion] = await connection.query(
+    `INSERT INTO scms_document_type_versions
+      (document_type_id, version_number, definition, definition_checksum, published_by)
+     VALUES (?, 1, ?, ?, ?)`,
+    [bankDocument.insertId, definitionJson, definitionChecksum, director.id],
+  );
+  await connection.query(
+    `INSERT INTO scms_document_requirements
+      (document_type_id, document_type_version_id, is_required, applicability,
+       effective_from, display_order, is_active, created_by)
+     VALUES (?, ?, TRUE, JSON_OBJECT(), '2026-01-01', 10, TRUE, ?)`,
+    [bankDocument.insertId, bankDocumentVersion.insertId, director.id],
+  );
+
+  for (const [authority, amount] of [['HQ COMNOR', 3000000], ['HQ COMKAR', 4000000], ['HQ COMLOG', 2500000]]) {
+    await connection.query(
+      `INSERT INTO scms_fiscal_budgets
+        (fiscal_year, program_code, authority_code, approved_amount, status, reason,
+         created_by, confirmed_by, confirmed_at)
+       VALUES ('2026-2027', 'MONTHLY_GRANT', ?, ?, 'confirmed',
+         'Confirmed demonstration budget for stakeholder workflow testing', ?, ?, CURRENT_TIMESTAMP(3))`,
+      [authority, amount, director.id, director.id],
     );
   }
 

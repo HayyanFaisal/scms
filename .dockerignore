@@ -1,0 +1,12 @@
+.git
+.env
+parent-portal/.env
+node_modules
+parent-portal/node_modules
+parent-portal/client/node_modules
+dist
+parent-portal/client/dist
+.scms-data
+test-data
+*.log
+

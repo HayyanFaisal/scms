@@ -19,6 +19,8 @@ import {
   FileCheck2,
   TableProperties,
   History,
+  Landmark,
+  Banknote,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -43,6 +45,8 @@ import { SystemConfiguration } from "@/sections/SystemConfiguration";
 import { DocumentReview } from "@/sections/DocumentReview";
 import { ImportWorkspace } from "@/sections/ImportWorkspace";
 import { AuditLog } from "@/sections/AuditLog";
+import { BankingWorkspace } from "@/sections/BankingWorkspace";
+import { PaymentWorkspace } from "@/sections/PaymentWorkspace";
 import RequestsTab from "@/components/Admin/RequestsTab";
 import { useAuth } from "@/hooks/useAuth";
 import { useTheme } from "@/hooks/useTheme";
@@ -66,6 +70,8 @@ type Page =
   | "access-control"
   | "requests"
   | "document-review"
+  | "banking-review"
+  | "payments"
   | "imports"
   | "audit";
 
@@ -92,6 +98,8 @@ const navigation: NavigationItem[] = [
   { id: "reports", label: "Reports", icon: FileSpreadsheet },
   { id: "requests", label: "Requests", icon: Inbox },
   { id: "document-review", label: "Documents & Forms", icon: FileCheck2 },
+  { id: "banking-review", label: "Banking Review", icon: Landmark },
+  { id: "payments", label: "Payments", icon: Banknote },
   { id: "imports", label: "Data Imports", icon: TableProperties },
   { id: "audit", label: "Audit Log", icon: History },
   { id: "settings", label: "Configuration", icon: Shield },
@@ -126,6 +134,8 @@ function App() {
       "access-control": "roles.read",
       imports: "imports.create",
       audit: "audit.read",
+      "banking-review": "banking.read",
+      payments: "payments.read",
     };
     if (page === "settings")
       return (
@@ -277,6 +287,10 @@ function App() {
         return <RequestsTab />;
       case "document-review":
         return <DocumentReview />;
+      case "banking-review":
+        return <BankingWorkspace />;
+      case "payments":
+        return <PaymentWorkspace />;
       case "imports":
         return <ImportWorkspace />;
       case "audit":

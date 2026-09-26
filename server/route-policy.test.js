@@ -24,6 +24,22 @@ test("core routes map reads and mutations to distinct permissions", () => {
     "banking.update",
   );
   assert.equal(
+    permissionForRequest({ path: "/banking/1/review", method: "POST" }),
+    "banking.verify",
+  );
+  assert.equal(
+    permissionForRequest({ path: "/payment-batches/4/approve", method: "POST" }),
+    "payments.approve",
+  );
+  assert.equal(
+    permissionForRequest({ path: "/payment-batches/4/export.csv", method: "POST" }),
+    "payments.export",
+  );
+  assert.equal(
+    permissionForRequest({ path: "/payment-lines/8/confirm", method: "POST" }),
+    "payments.confirm",
+  );
+  assert.equal(
     permissionForRequest({
       path: "/parents/PN-1/scanned-documents",
       method: "POST",

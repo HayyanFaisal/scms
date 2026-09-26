@@ -9,6 +9,7 @@ import helmet from 'helmet';
 import crypto from 'crypto';
 import multer from 'multer';
 import { documentFilePath, loadDocumentWorkspace, missingRequiredUploads, resolveDocumentOwner, storeDocumentFile, validateFormResponse } from '../server/document-management.js';
+import { appendBankingHistory, bankingError, normalizeBankingPayload } from '../server/banking-workflow.js';
 import path from 'path';
 import fs from 'fs/promises';
 import dotenv from 'dotenv';
@@ -1345,7 +1346,7 @@ app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
 app.get('/api/parent/banking', authenticateToken, async (req, res) => {
     try {
         const [banking] = await pool.execute(
-            'SELECT * FROM banking_details WHERE P_No_O_No = ?',
+            'SELECT * FROM banking_details WHERE P_No_O_No = ? AND Is_Archived = FALSE',
             [req.user.pNoONo]
         );
         res.json(banking);
@@ -1356,106 +1357,167 @@ app.get('/api/parent/banking', authenticateToken, async (req, res) => {
 });
 
 app.post('/api/parent/banking/add', authenticateToken, async (req, res) => {
+    const connection = await pool.getConnection();
     try {
-        const { bank_name, account_title, account_number, branch_code, branch_address, iban, routing_number, cnic_of_account_holder } = req.body;
-        
-        // Check if banking details already exist for this parent
-        const [existing] = await pool.execute(
-            'SELECT COUNT(*) as count FROM banking_details WHERE P_No_O_No = ?',
+        const values = normalizeBankingPayload(req.body, { parentPNo: req.user.pNoONo });
+        await connection.beginTransaction();
+        const [[existing]] = await connection.query(
+            'SELECT Account_ID FROM banking_details WHERE P_No_O_No = ? AND Is_Archived = FALSE FOR UPDATE',
             [req.user.pNoONo]
         );
-        
-        if (existing[0].count > 0) {
-            return res.status(400).json({ message: 'Banking details already exist. You can only have one banking record.' });
-        }
-        
-        // Build Bank_Name_Branch from components for backward compatibility
-        const bank_name_branch = branch_address ? `${bank_name}, ${branch_address}` : bank_name;
-        
-        const [result] = await pool.execute(
-            `INSERT INTO banking_details (P_No_O_No, Bank_Name, Account_Title, Account_Number, Branch_Code, Branch_Address, IBAN, Routing_Number, CNIC_of_Account_Holder, Bank_Name_Branch)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [req.user.pNoONo, bank_name, account_title, account_number, branch_code, branch_address, iban, routing_number, cnic_of_account_holder, bank_name_branch]
+        if (existing) throw bankingError('Banking details already exist. Update the existing record instead.', 409, 'BANKING_RECORD_EXISTS');
+        const [result] = await connection.query(
+            `INSERT INTO banking_details
+              (P_No_O_No, Bank_Name, Account_Title, Account_Number, Branch_Code, Branch_Address,
+               IBAN, Routing_Number, CNIC_of_Account_Holder, Bank_Name_Branch, Verification_Status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_evidence')`,
+            [values.P_No_O_No, values.Bank_Name, values.Account_Title, values.Account_Number,
+                values.Branch_Code, values.Branch_Address, values.IBAN, values.Routing_Number,
+                values.CNIC_of_Account_Holder, values.Bank_Name_Branch]
         );
-        // Fetch the newly created banking details to return to frontend
-        const [newBankingDetails] = await pool.execute(
-            'SELECT * FROM banking_details WHERE Account_ID = ?',
-            [result.insertId]
+        const [[record]] = await connection.query('SELECT * FROM banking_details WHERE Account_ID = ?', [result.insertId]);
+        await appendBankingHistory(connection, record, { action: 'created', actorType: 'parent', actorId: req.user.pNoONo });
+        await connection.query(
+            `INSERT INTO scms_audit_events (action, entity_type, entity_id, correlation_id, details)
+             VALUES ('banking.created', 'banking', ?, UUID(), JSON_OBJECT('parent', ?))`,
+            [String(result.insertId), req.user.pNoONo]
         );
-        
-        res.status(201).json(newBankingDetails[0]);
+        await connection.commit();
+        res.status(201).json(record);
     } catch (error) {
+        await connection.rollback();
         console.error('Failed to add banking details:', error);
-        res.status(500).json({ message: 'Server error', error: error.message });
+        res.status(error.status || 500).json({ message: error.status ? error.message : 'Unable to save banking details.' });
+    } finally {
+        connection.release();
     }
 });
 
 app.put('/api/parent/banking/update', authenticateToken, async (req, res) => {
+    const connection = await pool.getConnection();
     try {
-        const { bank_name, account_title, account_number, branch_code, branch_address, iban, routing_number, cnic_of_account_holder } = req.body;
-        
-        console.log('Updating banking details for user:', req.user.pNoONo);
-        console.log('Update data:', { bank_name, account_title, account_number, branch_code, branch_address, iban, routing_number, cnic_of_account_holder });
-        
-        // First check if banking details exist for this user
-        const [existing] = await pool.execute(
-            'SELECT COUNT(*) as count FROM banking_details WHERE P_No_O_No = ?',
+        const values = normalizeBankingPayload(req.body, { parentPNo: req.user.pNoONo });
+        await connection.beginTransaction();
+        const [[existing]] = await connection.query(
+            'SELECT * FROM banking_details WHERE P_No_O_No = ? AND Is_Archived = FALSE FOR UPDATE',
             [req.user.pNoONo]
         );
-        
-        console.log('Existing records count:', existing[0].count);
-        
-        if (existing[0].count === 0) {
-            return res.status(404).json({ message: 'No banking details found to update. Please add banking details first.' });
-        }
-        
-        // Build Bank_Name_Branch from components for backward compatibility
-        const bank_name_branch = branch_address ? `${bank_name}, ${branch_address}` : bank_name;
-        
-        const [result] = await pool.execute(
-            `UPDATE banking_details 
-             SET Bank_Name = ?, Account_Title = ?, Account_Number = ?, Branch_Code = ?, Branch_Address = ?, IBAN = ?, Routing_Number = ?, CNIC_of_Account_Holder = ?, Bank_Name_Branch = ?
-             WHERE P_No_O_No = ?`,
-            [bank_name, account_title, account_number, branch_code, branch_address, iban, routing_number, cnic_of_account_holder, bank_name_branch, req.user.pNoONo]
+        if (!existing) throw bankingError('No banking details were found to update.', 404, 'BANKING_NOT_FOUND');
+        await connection.query(
+            `UPDATE banking_details SET Bank_Name = ?, Account_Title = ?, Account_Number = ?, Branch_Code = ?,
+             Branch_Address = ?, IBAN = ?, Routing_Number = ?, CNIC_of_Account_Holder = ?, Bank_Name_Branch = ?,
+             Verification_Status = 'pending_evidence', Review_Reason = NULL, Verified_By = NULL,
+             Verified_At = NULL, Submitted_At = NULL, Evidence_Required_From = CURRENT_TIMESTAMP(3),
+             Row_Version = Row_Version + 1
+             WHERE Account_ID = ?`,
+            [values.Bank_Name, values.Account_Title, values.Account_Number, values.Branch_Code,
+                values.Branch_Address, values.IBAN, values.Routing_Number, values.CNIC_of_Account_Holder,
+                values.Bank_Name_Branch, existing.Account_ID]
         );
-        
-        console.log('Update result:', result);
-        
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ message: 'Banking details not found' });
-        }
-        
-        // Fetch the updated banking details to return to frontend
-        const [updatedBankingDetails] = await pool.execute(
-            'SELECT * FROM banking_details WHERE P_No_O_No = ?',
-            [req.user.pNoONo]
+        const [[updated]] = await connection.query('SELECT * FROM banking_details WHERE Account_ID = ?', [existing.Account_ID]);
+        await appendBankingHistory(connection, updated, { action: 'details_updated', actorType: 'parent', actorId: req.user.pNoONo });
+        await connection.query(
+            `INSERT INTO scms_audit_events (action, entity_type, entity_id, correlation_id, details)
+             VALUES ('banking.details_updated', 'banking', ?, UUID(), JSON_OBJECT('parent', ?))`,
+            [String(existing.Account_ID), req.user.pNoONo]
         );
-        
-        console.log('Updated banking details:', updatedBankingDetails[0]);
-        
-        res.json(updatedBankingDetails[0]);
+        await connection.commit();
+        res.json(updated);
     } catch (error) {
+        await connection.rollback();
         console.error('Failed to update banking details:', error);
-        console.error('Error details:', error.message);
-        res.status(500).json({ message: 'Server error', error: error.message });
+        res.status(error.status || 500).json({ message: error.status ? error.message : 'Unable to update banking details.' });
+    } finally {
+        connection.release();
+    }
+});
+
+app.post('/api/parent/banking/submit', authenticateToken, async (req, res) => {
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+        const [[record]] = await connection.query(
+            'SELECT * FROM banking_details WHERE P_No_O_No = ? AND Is_Archived = FALSE FOR UPDATE',
+            [req.user.pNoONo]
+        );
+        if (!record) throw bankingError('Add banking details before submitting evidence.', 404, 'BANKING_NOT_FOUND');
+        if (!['pending_evidence', 'changes_required'].includes(record.Verification_Status)) {
+            throw bankingError('This banking record is already submitted or verified.', 409, 'BANKING_ALREADY_SUBMITTED');
+        }
+        const [requirements] = await connection.query(
+            `SELECT r.document_type_id FROM scms_document_requirements r
+             INNER JOIN scms_document_types t ON t.id = r.document_type_id
+             WHERE t.entity_scope = 'banking' AND t.status = 'published'
+               AND r.is_active = TRUE AND r.is_required = TRUE
+               AND r.effective_from <= CURDATE()
+               AND (r.effective_to IS NULL OR r.effective_to >= CURDATE())`
+        );
+        if (requirements.length === 0) {
+            throw bankingError('Banking evidence is not configured yet. Contact the office.', 409, 'BANKING_EVIDENCE_NOT_CONFIGURED');
+        }
+        for (const requirement of requirements) {
+            const [[file]] = await connection.query(
+                `SELECT id FROM scms_document_files
+                 WHERE document_type_id = ? AND owner_type = 'banking' AND owner_id = ?
+                   AND status IN ('pending_review', 'verified')
+                   AND uploaded_at >= COALESCE(?, '1970-01-01')
+                 ORDER BY version_number DESC LIMIT 1`,
+                [requirement.document_type_id, String(record.Account_ID), record.Evidence_Required_From]
+            );
+            if (!file) throw bankingError('Upload every required banking evidence file before submitting.', 409, 'BANKING_EVIDENCE_INCOMPLETE');
+        }
+        await connection.query(
+            `UPDATE banking_details SET Verification_Status = 'pending_review', Submitted_At = CURRENT_TIMESTAMP(3),
+             Review_Reason = NULL, Row_Version = Row_Version + 1 WHERE Account_ID = ?`,
+            [record.Account_ID]
+        );
+        const [[updated]] = await connection.query('SELECT * FROM banking_details WHERE Account_ID = ?', [record.Account_ID]);
+        await appendBankingHistory(connection, updated, { action: 'submitted', actorType: 'parent', actorId: req.user.pNoONo });
+        await connection.query(
+            `INSERT INTO scms_audit_events (action, entity_type, entity_id, correlation_id, details)
+             VALUES ('banking.submitted', 'banking', ?, UUID(), JSON_OBJECT('parent', ?))`,
+            [String(record.Account_ID), req.user.pNoONo]
+        );
+        await connection.commit();
+        res.json(updated);
+    } catch (error) {
+        await connection.rollback();
+        res.status(error.status || 500).json({ message: error.status ? error.message : 'Unable to submit banking evidence.' });
+    } finally {
+        connection.release();
     }
 });
 
 app.delete('/api/parent/banking/delete', authenticateToken, async (req, res) => {
+    const connection = await pool.getConnection();
     try {
-        const [result] = await pool.execute(
-            'DELETE FROM banking_details WHERE P_No_O_No = ?',
-            [req.user.pNoONo]
+        await connection.beginTransaction();
+        const [[record]] = await connection.query(
+            'SELECT * FROM banking_details WHERE P_No_O_No = ? AND Is_Archived = FALSE FOR UPDATE', [req.user.pNoONo]
         );
-        
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ message: 'Banking details not found' });
+        if (!record) throw bankingError('Banking details not found.', 404, 'BANKING_NOT_FOUND');
+        if (record.Verification_Status === 'verified') {
+            throw bankingError('A verified banking record cannot be removed online. Contact the office to replace it safely.', 409, 'VERIFIED_BANKING_PROTECTED');
         }
-        
-        res.json({ message: 'Banking details deleted successfully' });
+        await connection.query(
+            `UPDATE banking_details SET Is_Archived = TRUE, Verification_Status = 'archived',
+             Row_Version = Row_Version + 1 WHERE Account_ID = ?`, [record.Account_ID]
+        );
+        const [[updated]] = await connection.query('SELECT * FROM banking_details WHERE Account_ID = ?', [record.Account_ID]);
+        await appendBankingHistory(connection, updated, { action: 'archived', actorType: 'parent', actorId: req.user.pNoONo });
+        await connection.query(
+            `INSERT INTO scms_audit_events (action, entity_type, entity_id, correlation_id, details)
+             VALUES ('banking.archived', 'banking', ?, UUID(), JSON_OBJECT('parent', ?))`,
+            [String(record.Account_ID), req.user.pNoONo]
+        );
+        await connection.commit();
+        res.json({ message: 'Banking details archived successfully.' });
     } catch (error) {
+        await connection.rollback();
         console.error('Failed to delete banking details:', error);
-        res.status(500).json({ message: 'Server error' });
+        res.status(error.status || 500).json({ message: error.status ? error.message : 'Unable to archive banking details.' });
+    } finally {
+        connection.release();
     }
 });
 

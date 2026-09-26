@@ -1,0 +1,43 @@
+{
+  email {$ACME_EMAIL}
+  admin off
+}
+
+{$ADMIN_DOMAIN} {
+  encode zstd gzip
+  # Shared authority passwords are retired in production. Authority personnel
+  # use named RBAC accounts in the main portal with an authority data scope.
+  redir /authority.html / 302
+  handle /api/* {
+    reverse_proxy main-api:3001
+  }
+  handle {
+    root * /srv/admin
+    try_files {path} /index.html
+    file_server
+  }
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options nosniff
+    Referrer-Policy strict-origin-when-cross-origin
+    -Server
+  }
+}
+
+{$PARENT_DOMAIN} {
+  encode zstd gzip
+  handle /api/* {
+    reverse_proxy parent-api:4000
+  }
+  handle {
+    root * /srv/parent
+    try_files {path} /index.html
+    file_server
+  }
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options nosniff
+    Referrer-Policy strict-origin-when-cross-origin
+    -Server
+  }
+}

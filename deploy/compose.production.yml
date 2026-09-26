@@ -1,0 +1,115 @@
+name: scms
+
+services:
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci"]
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    networks: [internal]
+
+  main-api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.main-api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@db:3306/${MYSQL_DATABASE}
+      PORT: 3001
+      SCMS_ALLOWED_ORIGINS: https://${ADMIN_DOMAIN}
+      SCMS_SESSION_INACTIVITY_MINUTES: ${SCMS_SESSION_INACTIVITY_MINUTES:-15}
+      SCMS_SESSION_ABSOLUTE_HOURS: ${SCMS_SESSION_ABSOLUTE_HOURS:-8}
+      SCMS_MAX_LOGIN_FAILURES: ${SCMS_MAX_LOGIN_FAILURES:-5}
+      SCMS_ACCOUNT_LOCK_MINUTES: ${SCMS_ACCOUNT_LOCK_MINUTES:-15}
+      SCMS_SECURE_COOKIES: "true"
+      SCMS_TRUST_PROXY: "true"
+      SCMS_ENABLE_LEGACY_AUTHORITY_LOGIN: "false"
+      SCMS_DOCUMENT_STORAGE_DIR: /data/documents
+      SCMS_IMPORT_STORAGE_DIR: /data/imports
+      PORTAL_API_URL: http://parent-api:4000
+      PORTAL_API_KEY: ${PORTAL_API_KEY}
+    volumes:
+      - document_data:/data/documents
+      - import_data:/data/imports
+    depends_on:
+      db: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+  parent-api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.parent-api
+    restart: unless-stopped
+    environment:
+      PORTAL_HOST: 0.0.0.0
+      PORTAL_PORT: 4000
+      PORTAL_DB_HOST: db
+      PORTAL_DB_USER: ${MYSQL_USER}
+      PORTAL_DB_PASSWORD: ${MYSQL_PASSWORD}
+      PORTAL_DB_NAME: ${MYSQL_DATABASE}
+      PORTAL_JWT_SECRET: ${PORTAL_JWT_SECRET}
+      ADMIN_API_KEY: ${PORTAL_API_KEY}
+      PARENT_PORTAL_ORIGINS: https://${PARENT_DOMAIN}
+      UPLOAD_DIR: /data/legacy-uploads
+      SCMS_DOCUMENT_STORAGE_DIR: /data/documents
+      MAX_FILE_SIZE_MB: 8
+    volumes:
+      - document_data:/data/documents
+      - legacy_upload_data:/data/legacy-uploads
+    depends_on:
+      db: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+    restart: unless-stopped
+    environment:
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN}
+      PARENT_DOMAIN: ${PARENT_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      main-api: { condition: service_healthy }
+      parent-api: { condition: service_healthy }
+    networks: [internal]
+
+volumes:
+  mysql_data:
+  document_data:
+  import_data:
+  legacy_upload_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  internal:
+

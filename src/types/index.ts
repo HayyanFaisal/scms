@@ -63,6 +63,15 @@ export interface BankingDetails {
   Routing_Number?: string;
   CNIC_of_Account_Holder?: string;
   Bank_Name_Branch: string;
+  Verification_Status?: string;
+  Review_Reason?: string;
+  Verified_By?: number;
+  Verified_At?: string;
+  Submitted_At?: string;
+  Evidence_Required_From?: string;
+  Updated_At?: string;
+  Row_Version?: number;
+  Is_Archived?: boolean;
 }
 
 // Child Medical Profile

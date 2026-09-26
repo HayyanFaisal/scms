@@ -3,9 +3,11 @@ import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
 import { inspectAttr } from 'kimi-plugin-inspect-react'
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   base: './',
-  plugins: [inspectAttr(), react()],
+  // Component source locations are useful locally, but must not be embedded in
+  // stakeholder production bundles.
+  plugins: [command === 'serve' ? inspectAttr() : null, react()].filter(Boolean),
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -27,4 +29,4 @@ export default defineConfig({
       }
     }
   }
-});
+}));

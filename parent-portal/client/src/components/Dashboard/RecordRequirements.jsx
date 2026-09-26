@@ -1,7 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import PortalToast from '../PortalToast'
 
-const RecordRequirements = ({ token, childId, childName, identifier, onBack, onFinish, finishLabel = 'Finish registration' }) => {
+const RecordRequirements = ({
+  token,
+  childId,
+  childName,
+  identifier,
+  ownerType = 'child',
+  ownerId,
+  recordName,
+  validAfter,
+  readOnly = false,
+  onBack,
+  onFinish,
+  finishLabel = 'Finish registration',
+  showNavigation = true
+}) => {
+  const effectiveOwnerId = ownerId ?? childId
+  const effectiveRecordName = recordName ?? childName ?? 'this record'
   const [workspace, setWorkspace] = useState(null)
   const [threads, setThreads] = useState([])
   const [message, setMessage] = useState('')
@@ -17,7 +33,7 @@ const RecordRequirements = ({ token, childId, childName, identifier, onBack, onF
   const load = useCallback(async () => {
     setError('')
     try {
-      const query = `ownerType=child&ownerId=${encodeURIComponent(childId)}`
+      const query = `ownerType=${encodeURIComponent(ownerType)}&ownerId=${encodeURIComponent(effectiveOwnerId)}`
       const [response, threadResponse] = await Promise.all([
         fetch(`/api/document-workspace?${query}`, { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`/api/message-threads?${query}`, { headers: { Authorization: `Bearer ${token}` } })
@@ -34,7 +50,7 @@ const RecordRequirements = ({ token, childId, childName, identifier, onBack, onF
     } catch (loadError) {
       setError(loadError.message || 'Unable to load requirements.')
     }
-  }, [childId, token])
+  }, [effectiveOwnerId, ownerType, token])
 
   useEffect(() => { void load() }, [load])
   useEffect(() => () => { if (previewFile?.url) URL.revokeObjectURL(previewFile.url) }, [previewFile])
@@ -42,10 +58,11 @@ const RecordRequirements = ({ token, childId, childName, identifier, onBack, onF
   const filesByType = useMemo(() => {
     const map = new Map()
     for (const file of workspace?.files || []) {
-      if (file.status !== 'superseded' && !map.has(file.document_type_id)) map.set(file.document_type_id, file)
+      const isCurrent = !validAfter || new Date(file.uploaded_at).getTime() >= new Date(validAfter).getTime()
+      if (isCurrent && file.status !== 'superseded' && !map.has(file.document_type_id)) map.set(file.document_type_id, file)
     }
     return map
-  }, [workspace])
+  }, [validAfter, workspace])
 
   const upload = async (requirement, file) => {
     if (!file) return
@@ -55,8 +72,8 @@ const RecordRequirements = ({ token, childId, childName, identifier, onBack, onF
       const body = new FormData()
       body.append('file', file)
       body.append('documentTypeId', requirement.document_type_id)
-      body.append('ownerType', 'child')
-      body.append('ownerId', childId)
+      body.append('ownerType', ownerType)
+      body.append('ownerId', effectiveOwnerId)
       if (expiryByType[requirement.document_type_id]) body.append('expiresOn', expiryByType[requirement.document_type_id])
       const response = await fetch('/api/document-files', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body })
       const result = await response.json()
@@ -89,7 +106,7 @@ const RecordRequirements = ({ token, childId, childName, identifier, onBack, onF
       const response = await fetch('/api/form-submissions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ ownerType: 'child', ownerId: childId, templateVersionId: form.template_version_id, response: responses[form.template_version_id] || {} })
+        body: JSON.stringify({ ownerType, ownerId: effectiveOwnerId, templateVersionId: form.template_version_id, response: responses[form.template_version_id] || {} })
       })
       const result = await response.json()
       if (!response.ok) throw new Error(result.error || 'Form submission failed.')
@@ -114,7 +131,7 @@ const RecordRequirements = ({ token, childId, childName, identifier, onBack, onF
       const path = currentThread ? `/api/message-threads/${currentThread.id}/messages` : '/api/message-threads'
       const payload = currentThread
         ? { body: message.trim() }
-        : { ownerType: 'child', ownerId: childId, subject: `Documents for ${childName}`, body: message.trim() }
+        : { ownerType, ownerId: effectiveOwnerId, subject: `Documents for ${effectiveRecordName}`, body: message.trim() }
       const response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(payload) })
       if (!response.ok) { const result = await response.json(); throw new Error(result.error || 'Unable to send message.') }
       setMessage('')
@@ -145,14 +162,15 @@ const RecordRequirements = ({ token, childId, childName, identifier, onBack, onF
   return <div className="w-full max-w-7xl space-y-6">
     <PortalToast message={error} type="error" onClose={dismissError} duration={8000} />
     <PortalToast message={notice} type="success" onClose={dismissNotice} />
-    <div><h1 className="text-2xl font-bold text-slate-800 dark:text-white">Documents & Digital Forms</h1><p className="text-slate-500 dark:text-slate-400">Complete the configured requirements for {childName} ({identifier}).</p></div>
+    <div><h1 className="text-2xl font-bold text-slate-800 dark:text-white">Documents & Digital Forms</h1><p className="text-slate-500 dark:text-slate-400">Complete the configured requirements for {effectiveRecordName}{identifier ? ` (${identifier})` : ''}.</p></div>
+    {readOnly && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">This submission is locked while it is under review or already finalized. You can still preview evidence and message staff. Edit the record or wait for a correction request before replacing evidence.</div>}
     <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-950 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-100"><strong>How saving works:</strong> a document is saved as soon as its upload completes, so refreshing will not remove it. A replacement creates a new version and keeps the older version in history. Digital-form answers are saved only when you press <strong>Submit form</strong>.</div>
     <div className="rounded-xl border bg-white p-4 dark:bg-slate-800"><div className="flex justify-between text-sm"><span>Required uploads saved</span><strong>{satisfiedDocuments}/{requiredDocuments.length}</strong></div></div>
 
     <div className="grid gap-4 md:grid-cols-2">{workspace.requirements.map(requirement => {
       const file = filesByType.get(requirement.document_type_id)
       const definition = requirement.definition || {}
-      const replacementAllowed = !file || definition.requiresReupload
+      const replacementAllowed = !readOnly && (!file || definition.requiresReupload)
       const expiryMissing = definition.requiresExpiry && !expiryByType[requirement.document_type_id]
       return <div key={requirement.requirement_id} className="space-y-3 rounded-2xl border bg-white p-5 dark:bg-slate-800">
         <div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold">{requirement.name}</h3><p className="text-sm text-slate-500 dark:text-slate-400">{definition.instructions || requirement.description}</p></div>{requirement.is_required && <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-900 dark:bg-amber-950/60 dark:text-amber-100">Required</span>}</div>
@@ -164,14 +182,14 @@ const RecordRequirements = ({ token, childId, childName, identifier, onBack, onF
     })}</div>
 
     {workspace.forms.map(form => {
-      const canSubmit = !form.submission_id || form.submission_status === 'changes_required'
+      const canSubmit = !readOnly && (!form.submission_id || form.submission_status === 'changes_required')
       const buttonText = !form.submission_id ? 'Submit form' : form.submission_status === 'changes_required' ? 'Submit corrected version' : form.submission_status === 'verified' ? 'Verified' : 'Awaiting staff review'
       return <div key={form.template_version_id} className="space-y-5 rounded-2xl border bg-white p-6 dark:bg-slate-800"><div><h2 className="text-lg font-semibold">{form.name}</h2><p className="text-sm text-slate-500">Version {form.version_number}{form.submission_status ? ` · ${form.submission_status.replace('_', ' ')}` : ''}</p>{form.review_reason && <p className="text-sm text-rose-600 dark:text-rose-300">{form.review_reason}</p>}</div>{form.schema_json.sections?.map(section => <div key={section.id} className="space-y-4"><div><h3 className="font-medium">{section.title}</h3>{section.instructions && <p className="text-sm text-slate-500">{section.instructions}</p>}</div>{section.fields.map(field => <div key={field.key} className="space-y-1.5 text-sm"><label className="block">{field.label}{field.required && <span className="text-rose-500"> *</span>}</label>{renderField(form, field)}{field.helpText && <span className="block text-xs text-slate-500">{field.helpText}</span>}</div>)}</div>)}<button disabled={!canSubmit || busy[`form-${form.template_version_id}`]} onClick={() => void submitForm(form)} className="rounded-xl bg-blue-600 px-5 py-2.5 text-white disabled:cursor-not-allowed disabled:bg-slate-400 disabled:opacity-80">{buttonText}</button></div>
     })}
 
     <div className="space-y-4 rounded-2xl border bg-white p-6 dark:bg-slate-800"><div><h2 className="text-lg font-semibold">Messages</h2><p className="text-sm text-slate-500">Ask staff about a requirement or respond to a correction request.</p></div><div className="max-h-64 space-y-2 overflow-y-auto">{threads.flatMap(thread => thread.messages || []).map(item => <div key={item.id} className={`rounded-xl p-3 text-sm ${item.sender_type === 'parent' ? 'ml-8 bg-blue-50 dark:bg-blue-900/20' : 'mr-8 bg-slate-100 dark:bg-slate-700'}`}><div>{item.body}</div><div className="mt-1 text-xs text-slate-500">{item.sender_type} · {new Date(item.created_at).toLocaleString()}</div></div>)}{threads.length === 0 && <p className="text-sm text-slate-500">No messages yet.</p>}</div><div className="flex gap-2"><textarea rows="2" className="flex-1 rounded-xl border p-3 dark:bg-slate-700" value={message} onChange={event => setMessage(event.target.value)} placeholder="Write a message" /><button disabled={busy.message || !message.trim()} onClick={() => void sendMessage()} className="rounded-xl bg-blue-600 px-5 text-white disabled:opacity-50">Send</button></div></div>
-    {workspace.requirements.length === 0 && workspace.forms.length === 0 && <div className="rounded-xl border p-8 text-center text-slate-500">No document or digital-form requirements are currently configured for child records.</div>}
-    <div className="flex justify-between"><button onClick={onBack} className="rounded-xl bg-slate-100 px-5 py-3 text-slate-800 dark:bg-slate-700 dark:text-white">Back</button><button disabled={satisfiedDocuments < requiredDocuments.length} onClick={onFinish} className="rounded-xl bg-emerald-600 px-6 py-3 text-white disabled:cursor-not-allowed disabled:opacity-50">{finishLabel}</button></div>
+    {workspace.requirements.length === 0 && workspace.forms.length === 0 && <div className="rounded-xl border p-8 text-center text-slate-500">No document or digital-form requirements are currently configured for this record type.</div>}
+    {showNavigation && <div className="flex justify-between">{onBack ? <button onClick={onBack} className="rounded-xl bg-slate-100 px-5 py-3 text-slate-800 dark:bg-slate-700 dark:text-white">Back</button> : <span />}{onFinish && <button disabled={satisfiedDocuments < requiredDocuments.length} onClick={onFinish} className="rounded-xl bg-emerald-600 px-6 py-3 text-white disabled:cursor-not-allowed disabled:opacity-50">{finishLabel}</button>}</div>}
 
     {previewFile && <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-950/75 p-4" role="dialog" aria-modal="true" aria-label={previewFile.name} onMouseDown={event => { if (event.target === event.currentTarget) setPreviewFile(null) }}><div className="flex h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-900"><div className="flex items-center justify-between gap-3 border-b p-4"><div className="min-w-0 truncate font-semibold">{previewFile.name}</div><div className="flex shrink-0 gap-2"><a href={previewFile.url} target="_blank" rel="noreferrer" className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Open tab</a><a href={previewFile.url} download={previewFile.name} className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800">Download</a><button onClick={() => setPreviewFile(null)} className="rounded-lg px-3 py-2 text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-800">Close</button></div></div><div className="min-h-0 flex-1 bg-slate-100 p-3 dark:bg-slate-950">{previewFile.mime === 'application/pdf' ? <iframe className="h-full w-full rounded-lg bg-white" src={previewFile.url} title={previewFile.name} /> : /^image\/(jpeg|png|gif|webp)$/.test(previewFile.mime) ? <img className="h-full w-full object-contain" src={previewFile.url} alt={previewFile.name} /> : <div className="flex h-full items-center justify-center"><div className="max-w-md rounded-2xl bg-white p-8 text-center shadow dark:bg-slate-800"><span className="material-symbols-outlined text-5xl text-slate-400">draft</span><h3 className="mt-3 font-semibold">Preview unavailable for this file type</h3><p className="mt-2 text-sm text-slate-500">The file is safely stored. Use Open tab or Download to view it in a compatible application.</p></div></div>}</div></div></div>}
   </div>

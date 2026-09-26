@@ -19,6 +19,8 @@ import { PARENT_FIELD_COLUMNS, matchParentByIdentifiers, normalizeIdentifier, re
 import { registerDocumentManagementRoutes } from './document-management.js';
 import { recoverImportWorkers, registerImportPlatformRoutes } from './import-platform.js';
 import { registerAuditLogRoutes } from './audit-log.js';
+import { appendBankingHistory, bankingError, normalizeBankingPayload } from './banking-workflow.js';
+import { registerPaymentOperationsRoutes } from './payment-operations.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -173,7 +175,7 @@ async function getBootstrap(staff) {
   const [parents, documents, banking, children, grants, gadgets] = await Promise.all([
     query(`SELECT ${qualifiedParentSafeColumns('pb')} FROM Parent_Beneficiary pb WHERE ${parentFilter.sql} ORDER BY pb.Parent_Name`, parentFilter.params),
     query(`SELECT d.* FROM Document_Tracking d INNER JOIN Parent_Beneficiary pb ON pb.P_No_O_No = d.P_No_O_No WHERE ${documentFilter.sql} ORDER BY d.Doc_ID`, documentFilter.params),
-    query(`SELECT b.* FROM Banking_Details b INNER JOIN Parent_Beneficiary pb ON pb.P_No_O_No = b.P_No_O_No WHERE ${bankingFilter.sql} ORDER BY b.Account_ID`, bankingFilter.params),
+    query(`SELECT b.* FROM Banking_Details b INNER JOIN Parent_Beneficiary pb ON pb.P_No_O_No = b.P_No_O_No WHERE b.Is_Archived = FALSE AND ${bankingFilter.sql} ORDER BY b.Account_ID`, bankingFilter.params),
     query(`SELECT dc.* FROM Dependent_Children dc INNER JOIN Parent_Beneficiary pb ON pb.P_No_O_No = dc.P_No_O_No WHERE ${childFilter.sql} ORDER BY dc.Child_ID`, childFilter.params),
     query(`SELECT mg.* FROM Monthly_Grants mg INNER JOIN Dependent_Children dc ON dc.Child_ID = mg.Child_ID INNER JOIN Parent_Beneficiary pb ON pb.P_No_O_No = dc.P_No_O_No WHERE ${grantFilter.sql} ORDER BY mg.Grant_ID`, grantFilter.params),
     query(`SELECT cg.* FROM Child_Gadgets cg INNER JOIN Dependent_Children dc ON dc.Child_ID = cg.Child_ID INNER JOIN Parent_Beneficiary pb ON pb.P_No_O_No = dc.P_No_O_No WHERE ${gadgetFilter.sql} ORDER BY cg.Gadget_ID`, gadgetFilter.params)
@@ -411,6 +413,7 @@ registerConfigurationRoutes(app, pool);
 registerDocumentManagementRoutes(app, pool, transaction);
 registerImportPlatformRoutes(app, pool, transaction);
 registerAuditLogRoutes(app, pool);
+registerPaymentOperationsRoutes(app, pool, transaction);
 
 app.post('/api/imports/provisional-record', async (req, res, next) => {
   try {
@@ -750,7 +753,48 @@ app.delete('/api/scanned-documents/:documentFileId', async (req, res) => {
 app.get('/api/banking', async (req, res) => {
   try {
     const filter = scopePredicate(req.dataScope, 'pb.Admin_Authority');
-    res.json(await query(`SELECT b.* FROM Banking_Details b INNER JOIN Parent_Beneficiary pb ON pb.P_No_O_No = b.P_No_O_No WHERE ${filter.sql} ORDER BY b.Account_ID`, filter.params));
+    res.json(await query(`SELECT b.* FROM Banking_Details b INNER JOIN Parent_Beneficiary pb ON pb.P_No_O_No = b.P_No_O_No WHERE b.Is_Archived = FALSE AND ${filter.sql} ORDER BY b.Account_ID`, filter.params));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/banking-workspace', async (req, res) => {
+  try {
+    const filter = scopePredicate(req.dataScope, 'pb.Admin_Authority');
+    const rows = await query(
+      `SELECT b.*, pb.Parent_Name, pb.Parent_CNIC, pb.Admin_Authority,
+              verifier.display_name AS Verified_By_Name,
+              (SELECT COUNT(*) FROM scms_document_files f
+               WHERE f.owner_type = 'banking' AND CAST(f.owner_id AS UNSIGNED) = b.Account_ID
+                 AND f.status <> 'superseded' AND f.uploaded_at >= COALESCE(b.Evidence_Required_From, '1970-01-01')) AS Evidence_Count,
+              (SELECT COUNT(*) FROM scms_document_files f
+               WHERE f.owner_type = 'banking' AND CAST(f.owner_id AS UNSIGNED) = b.Account_ID
+                 AND f.status = 'verified' AND f.uploaded_at >= COALESCE(b.Evidence_Required_From, '1970-01-01')) AS Verified_Evidence_Count
+       FROM Banking_Details b
+       INNER JOIN Parent_Beneficiary pb ON pb.P_No_O_No = b.P_No_O_No
+       LEFT JOIN scms_users verifier ON verifier.id = b.Verified_By
+       WHERE b.Is_Archived = FALSE AND ${filter.sql}
+       ORDER BY FIELD(b.Verification_Status, 'pending_review', 'changes_required', 'pending_evidence', 'verified', 'rejected'),
+                b.Updated_At DESC`,
+      filter.params,
+    );
+    res.json(rows);
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.get('/api/banking/:accountId/history', async (req, res) => {
+  try {
+    const rows = await query(
+      `SELECT id, version_number, action, verification_status, snapshot,
+              reason, actor_type, actor_id, created_at
+       FROM scms_banking_history
+       WHERE account_id = ? ORDER BY version_number DESC, created_at DESC`,
+      [Number(req.params.accountId)],
+    );
+    res.json(rows);
   } catch (error) {
     sendError(res, error);
   }
@@ -758,14 +802,34 @@ app.get('/api/banking', async (req, res) => {
 
 app.post('/api/banking', async (req, res) => {
   try {
-    const { P_No_O_No, Bank_Name, Account_Title, Account_Number, Branch_Code, Branch_Address, IBAN, Routing_Number, CNIC_of_Account_Holder, Bank_Name_Branch } = req.body;
-    const result = await query(
-      `INSERT INTO Banking_Details
-        (P_No_O_No, Bank_Name, Account_Title, Account_Number, Branch_Code, Branch_Address, IBAN, Routing_Number, CNIC_of_Account_Holder, Bank_Name_Branch)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [P_No_O_No, Bank_Name, Account_Title, Account_Number, Branch_Code, Branch_Address, IBAN, Routing_Number, CNIC_of_Account_Holder, Bank_Name_Branch || (Branch_Address ? `${Bank_Name}, ${Branch_Address}` : Bank_Name)]
-    );
-    res.status(201).json(await getBankingRecord(result.insertId));
+    const values = normalizeBankingPayload(req.body);
+    if (!values.P_No_O_No) throw bankingError('Choose a parent record.');
+    const accountId = await transaction(async connection => {
+      const [[duplicate]] = await connection.query(
+        'SELECT Account_ID FROM Banking_Details WHERE P_No_O_No = ? AND Is_Archived = FALSE FOR UPDATE',
+        [values.P_No_O_No],
+      );
+      if (duplicate) throw bankingError('This parent already has an active banking record.', 409, 'BANKING_RECORD_EXISTS');
+      const [result] = await connection.query(
+        `INSERT INTO Banking_Details
+          (P_No_O_No, Bank_Name, Account_Title, Account_Number, Branch_Code, Branch_Address,
+           IBAN, Routing_Number, CNIC_of_Account_Holder, Bank_Name_Branch, Verification_Status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_evidence')`,
+        [values.P_No_O_No, values.Bank_Name, values.Account_Title, values.Account_Number,
+          values.Branch_Code, values.Branch_Address, values.IBAN, values.Routing_Number,
+          values.CNIC_of_Account_Holder, values.Bank_Name_Branch],
+      );
+      const [[created]] = await connection.query('SELECT * FROM Banking_Details WHERE Account_ID = ?', [result.insertId]);
+      await appendBankingHistory(connection, created, { action: 'created', actorType: 'staff', actorId: req.staff.id });
+      await connection.query(
+        `INSERT INTO scms_audit_events
+          (actor_user_id, action, entity_type, entity_id, outcome, correlation_id, details)
+         VALUES (?, 'banking.created', 'banking', ?, 'success', UUID(), JSON_OBJECT('parent', ?))`,
+        [req.staff.id, String(result.insertId), values.P_No_O_No],
+      );
+      return Number(result.insertId);
+    });
+    res.status(201).json(await getBankingRecord(accountId));
   } catch (error) {
     sendError(res, error);
   }
@@ -774,14 +838,100 @@ app.post('/api/banking', async (req, res) => {
 app.put('/api/banking/:accountId', async (req, res) => {
   try {
     const accountId = Number(req.params.accountId);
-    const { P_No_O_No, Bank_Name, Account_Title, Account_Number, Branch_Code, Branch_Address, IBAN, Routing_Number, CNIC_of_Account_Holder, Bank_Name_Branch } = req.body;
-    await query(
-      `UPDATE Banking_Details
-       SET P_No_O_No = ?, Bank_Name = ?, Account_Title = ?, Account_Number = ?, Branch_Code = ?, Branch_Address = ?, IBAN = ?, Routing_Number = ?, CNIC_of_Account_Holder = ?, Bank_Name_Branch = ?
-       WHERE Account_ID = ?`,
-      [P_No_O_No, Bank_Name, Account_Title, Account_Number, Branch_Code, Branch_Address, IBAN, Routing_Number, CNIC_of_Account_Holder, Bank_Name_Branch || (Branch_Address ? `${Bank_Name}, ${Branch_Address}` : Bank_Name), accountId]
-    );
+    const values = normalizeBankingPayload(req.body);
+    await transaction(async connection => {
+      const [[existing]] = await connection.query(
+        'SELECT * FROM Banking_Details WHERE Account_ID = ? AND Is_Archived = FALSE FOR UPDATE',
+        [accountId],
+      );
+      if (!existing) throw bankingError('Banking record not found.', 404, 'BANKING_NOT_FOUND');
+      if (Number(req.body?.Row_Version || existing.Row_Version) !== Number(existing.Row_Version)) {
+        throw bankingError('This banking record changed in another session. Refresh and try again.', 409, 'VERSION_CONFLICT');
+      }
+      await connection.query(
+        `UPDATE Banking_Details SET P_No_O_No = ?, Bank_Name = ?, Account_Title = ?,
+         Account_Number = ?, Branch_Code = ?, Branch_Address = ?, IBAN = ?, Routing_Number = ?,
+         CNIC_of_Account_Holder = ?, Bank_Name_Branch = ?, Verification_Status = 'pending_evidence',
+         Review_Reason = NULL, Verified_By = NULL, Verified_At = NULL, Submitted_At = NULL,
+         Evidence_Required_From = CURRENT_TIMESTAMP(3),
+         Row_Version = Row_Version + 1 WHERE Account_ID = ?`,
+        [values.P_No_O_No || existing.P_No_O_No, values.Bank_Name, values.Account_Title,
+          values.Account_Number, values.Branch_Code, values.Branch_Address, values.IBAN,
+          values.Routing_Number, values.CNIC_of_Account_Holder, values.Bank_Name_Branch, accountId],
+      );
+      const [[updated]] = await connection.query('SELECT * FROM Banking_Details WHERE Account_ID = ?', [accountId]);
+      await appendBankingHistory(connection, updated, { action: 'details_updated', actorType: 'staff', actorId: req.staff.id });
+      await connection.query(
+        `INSERT INTO scms_audit_events
+          (actor_user_id, action, entity_type, entity_id, outcome, correlation_id, details)
+         VALUES (?, 'banking.details_updated', 'banking', ?, 'success', UUID(), JSON_OBJECT('parent', ?))`,
+        [req.staff.id, String(accountId), updated.P_No_O_No],
+      );
+    });
     res.json(await getBankingRecord(accountId));
+  } catch (error) {
+    sendError(res, error);
+  }
+});
+
+app.post('/api/banking/:accountId/review', async (req, res) => {
+  try {
+    const accountId = Number(req.params.accountId);
+    const decision = String(req.body?.decision || '');
+    const reason = String(req.body?.reason || '').trim();
+    if (!['verified', 'changes_required', 'rejected'].includes(decision)) throw bankingError('Choose a valid banking decision.');
+    if (decision !== 'verified' && reason.length < 5) throw bankingError('A parent-facing reason of at least 5 characters is required.');
+    await transaction(async connection => {
+      const [[record]] = await connection.query(
+        'SELECT * FROM Banking_Details WHERE Account_ID = ? AND Is_Archived = FALSE FOR UPDATE',
+        [accountId],
+      );
+      if (!record) throw bankingError('Banking record not found.', 404, 'BANKING_NOT_FOUND');
+      if (record.Verification_Status !== 'pending_review') {
+        throw bankingError('Only a submitted banking record can receive a review decision.', 409, 'BANKING_NOT_SUBMITTED');
+      }
+      if (decision === 'verified') {
+        const [requirements] = await connection.query(
+          `SELECT r.document_type_id
+           FROM scms_document_requirements r
+           INNER JOIN scms_document_types t ON t.id = r.document_type_id
+           WHERE t.entity_scope = 'banking' AND t.status = 'published'
+             AND r.is_active = TRUE AND r.is_required = TRUE
+             AND r.effective_from <= CURDATE()
+             AND (r.effective_to IS NULL OR r.effective_to >= CURDATE())`,
+        );
+        if (requirements.length === 0) {
+          throw bankingError('Configure and publish at least one required banking evidence type before verification.', 409, 'BANKING_EVIDENCE_NOT_CONFIGURED');
+        }
+        for (const requirement of requirements) {
+          const [[evidence]] = await connection.query(
+            `SELECT id FROM scms_document_files
+             WHERE document_type_id = ? AND owner_type = 'banking' AND owner_id = ?
+               AND status = 'verified' AND uploaded_at >= COALESCE(?, '1970-01-01')
+             ORDER BY version_number DESC LIMIT 1`,
+            [requirement.document_type_id, String(accountId), record.Evidence_Required_From],
+          );
+          if (!evidence) throw bankingError('Every required banking evidence file must be verified before the account can be approved.', 409, 'BANKING_EVIDENCE_INCOMPLETE');
+        }
+      }
+      await connection.query(
+        `UPDATE Banking_Details SET Verification_Status = ?, Review_Reason = ?,
+         Verified_By = ?, Verified_At = ?, Row_Version = Row_Version + 1 WHERE Account_ID = ?`,
+        [decision, reason || null, decision === 'verified' ? req.staff.id : null,
+          decision === 'verified' ? new Date() : null, accountId],
+      );
+      const [[updated]] = await connection.query('SELECT * FROM Banking_Details WHERE Account_ID = ?', [accountId]);
+      await appendBankingHistory(connection, updated, {
+        action: `review_${decision}`, reason, actorType: 'staff', actorId: req.staff.id,
+      });
+      await connection.query(
+        `INSERT INTO scms_audit_events
+          (actor_user_id, action, entity_type, entity_id, outcome, reason, correlation_id, details)
+         VALUES (?, ?, 'banking', ?, 'success', ?, UUID(), JSON_OBJECT('decision', ?))`,
+        [req.staff.id, `banking.${decision}`, String(accountId), reason || null, decision],
+      );
+    });
+    res.status(204).send();
   } catch (error) {
     sendError(res, error);
   }
@@ -789,7 +939,23 @@ app.put('/api/banking/:accountId', async (req, res) => {
 
 app.delete('/api/banking/:accountId', async (req, res) => {
   try {
-    await query('DELETE FROM Banking_Details WHERE Account_ID = ?', [Number(req.params.accountId)]);
+    const accountId = Number(req.params.accountId);
+    await transaction(async connection => {
+      const [[record]] = await connection.query('SELECT * FROM Banking_Details WHERE Account_ID = ? AND Is_Archived = FALSE FOR UPDATE', [accountId]);
+      if (!record) throw bankingError('Banking record not found.', 404, 'BANKING_NOT_FOUND');
+      await connection.query(
+        `UPDATE Banking_Details SET Is_Archived = TRUE, Verification_Status = 'archived',
+         Row_Version = Row_Version + 1 WHERE Account_ID = ?`, [accountId],
+      );
+      const [[updated]] = await connection.query('SELECT * FROM Banking_Details WHERE Account_ID = ?', [accountId]);
+      await appendBankingHistory(connection, updated, { action: 'archived', actorType: 'staff', actorId: req.staff.id });
+      await connection.query(
+        `INSERT INTO scms_audit_events
+          (actor_user_id, action, entity_type, entity_id, outcome, correlation_id, details)
+         VALUES (?, 'banking.archived', 'banking', ?, 'success', UUID(), JSON_OBJECT('parent', ?))`,
+        [req.staff.id, String(accountId), updated.P_No_O_No],
+      );
+    });
     res.status(204).send();
   } catch (error) {
     sendError(res, error);
@@ -800,7 +966,7 @@ app.delete('/api/banking/:accountId', async (req, res) => {
 app.get('/api/banking/parent/:pNoONo', async (req, res) => {
   try {
     const pNoONo = req.params.pNoONo;
-    const rows = await query('SELECT * FROM Banking_Details WHERE P_No_O_No = ?', [pNoONo]);
+    const rows = await query('SELECT * FROM Banking_Details WHERE P_No_O_No = ? AND Is_Archived = FALSE', [pNoONo]);
     if (rows.length > 0) {
       res.json(rows[0]);
     } else {

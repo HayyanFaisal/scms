@@ -302,6 +302,23 @@ Migrations `011_import_platform.js`, `012_import_operations.js`, and `013_import
 
 Current Phase 3 limitations: legacy `.xls`, distributed multi-node worker leasing, more import profiles, bulk conflict decisions, and high-volume performance certification remain follow-up work. The current CSV and Excel result exports are genuine files of the advertised type.
 
+### Phase 4 banking verification
+
+Migrations `015_banking_evidence_workflow.js` and `016_default_banking_evidence.js` add a versioned banking-evidence workflow. Parents save account details, upload the configured evidence, and submit for review. Any later account edit invalidates the former approval and requires evidence uploaded after that change. Staff review the file in **Documents & Forms**, then use **Banking Review** to verify the account or return a parent-visible correction reason. Final banking approval requires `banking.verify`, follows the account's banking authority scope, and is blocked until all current required evidence files are verified. No external bank connection is used.
+
+### Phase 4 payment operations
+
+Migration `017_payment_operations.js` adds authority-scoped fiscal budgets, monthly payment batches, immutable payment-line snapshots, and confirmation attempts. Open **Payments** with `payments.read`.
+
+- Preview explains why every active grant is eligible or excluded. Unapproved records, partial-month grants, missing/unverified banking, invalid rates, and an already scheduled grant/month are never silently included.
+- Creating a batch rechecks eligibility inside a transaction. A database unique guard prevents duplicate or concurrent scheduling for the same grant and month.
+- A confirmed authority budget is required for approval. The person who prepared a batch cannot approve it, and concurrent approvals serialize against the budget so they cannot both spend the same balance.
+- `payments.export` produces a formula-safe CSV containing the captured banking snapshot and records its SHA-256 checksum. Export is a CSRF-protected audited action.
+- After bank handoff, `payments.confirm` records paid, failed, or returned outcomes. Every retry is retained rather than overwriting the previous attempt.
+- SCMS prepares and reconciles files only; it does not contact a bank or initiate a transfer.
+
+The stakeholder-test container topology is documented in `deploy/README.md`. It serves both portals over HTTPS while keeping MySQL and both API ports off the public network.
+
 For a safe guided test, use `test-data/SCMS_Parent_Import_Test_50_Rows.xlsx`. It contains exactly 50 clearly marked parent rows plus **Read Me** and **Mapping Guide** sheets. Choose **Parents only**, worksheet **Parents 50**, and header row **1**, then run dry validation before execution. Regenerate it with `npm run generate:test-import`.
 
 ### Audit log

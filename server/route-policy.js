@@ -56,6 +56,16 @@ export function permissionForRequest({ path, method }) {
     return read ? "forms.read" : "forms.submit";
   if (pathName.startsWith("/message-threads"))
     return read ? "messages.read" : "messages.send";
+  if (/^\/payment-batches\/[^/]+\/export\.csv$/.test(pathName))
+    return "payments.export";
+  if (/^\/payment-batches\/[^/]+\/approve$/.test(pathName))
+    return "payments.approve";
+  if (/^\/payment-lines\/[^/]+\/confirm$/.test(pathName))
+    return "payments.confirm";
+  if (pathName.startsWith("/payment-batches"))
+    return read ? "payments.read" : "payments.manage";
+  if (pathName.startsWith("/fiscal-budgets"))
+    return read ? "budgets.read" : "budgets.manage";
   if (
     pathName.includes("/scanned-documents") ||
     pathName.startsWith("/documents")
@@ -74,6 +84,7 @@ export function permissionForRequest({ path, method }) {
         : httpMethod === "DELETE"
           ? "parents.archive"
           : "parents.update";
+  if (/^\/banking\/[^/]+\/review$/.test(pathName)) return "banking.verify";
   if (pathName.startsWith("/banking"))
     return read ? "banking.read" : "banking.update";
   if (pathName.startsWith("/children"))

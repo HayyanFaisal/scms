@@ -462,6 +462,14 @@ This iteration does not connect to a bank. It supports evidence exchange:
 
 Banking data is denied to Support and authority roles by default. Exports need an explicit sensitive-export permission and should mask values unless the use case requires full data.
 
+### Current banking workflow
+
+Open **Banking Review** in the staff portal to see authority-scoped records and their current evidence counts. Parents enter the banking details first, then upload every configured banking requirement and press **Submit banking evidence for review**. Document reviewers must verify each file in **Documents & Forms** before a user with `banking.verify` can verify the banking record.
+
+`pending_evidence -> pending_review -> verified` is the successful path. Staff may return a submitted record as `changes_required` with a parent-visible reason or use `rejected` when office intervention is required. Editing any banking field returns the record to `pending_evidence`, clears its former approval, increments its row version, and establishes `Evidence_Required_From`; files older than that time remain historical but cannot satisfy the new submission. Parent deletion is a soft archive, and a verified record cannot be removed online.
+
+Migration `015_banking_evidence_workflow.js` adds the state/version fields and immutable `scms_banking_history` snapshots. Migration `016_default_banking_evidence.js` publishes a safe initial **Bank Account Evidence** requirement only when no required banking evidence is already configured. The Director can revise future requirements through **Configuration -> Documents & Forms**. `banking.update` does not imply `banking.verify`; Director and Admin receive the latter by default, and custom roles may be delegated explicitly.
+
 ## 12. Settings manual
 
 The goal is to avoid code changes for predictable operational changes.
@@ -783,6 +791,18 @@ The root production build now passes. Lint still reports legacy violations that 
 - Automated coverage target follows the stakeholder requirement of more than 80%, with particular emphasis on security and financial rules rather than gaming a total percentage.
 
 ## 19. Air-gapped deployment and operations
+
+### Payment operations
+
+`server/payment-operations.js` owns the Phase 4 payment state machine. Access is split across `payments.read`, `payments.manage`, `payments.approve`, `payments.export`, `payments.confirm`, `budgets.read`, and `budgets.manage`; all queries also apply the grants authority scope.
+
+The monthly preview is not a promise to pay. Batch creation runs the same eligibility checks under database locks and captures the exact grant rate and banking version used. `scms_payment_lines.duplicate_guard` is unique for `grant:{grantId}:{YYYY-MM}` while the batch remains operational. This is the final duplicate defense even when two operators submit at the same time.
+
+The batch lifecycle is `draft -> approved -> exported -> partially_confirmed -> confirmed`. A draft or approved batch may instead become `cancelled`; exported batches require an explicit operational correction rather than deletion. Approval requires a confirmed fiscal budget, locks that budget while calculating utilization, and rejects the batch creator as approver. Export is a CSRF-protected POST that returns a UTF-8 CSV and stores its SHA-256 checksum. Payment confirmations append numbered immutable attempts; the line stores only the latest operational status/reference for quick listing.
+
+Bank account numbers are masked for read-only payment users. The full captured account snapshot is returned only to `payments.export`. Audit details must never include session secrets or uncaptured live banking data. This workflow produces instructions and records results; it has no bank API integration.
+
+For local testing, the coherent demo reset creates confirmed 2026-2027 budgets. Demo bank records begin unverified by design, so a payment preview first demonstrates the `banking_not_verified` safety exclusion. Complete the banking evidence workflow before expecting an eligible line.
 
 ### Release contents
 
