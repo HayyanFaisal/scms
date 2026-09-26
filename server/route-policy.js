@@ -10,6 +10,13 @@ export function permissionForRequest({ path, method }) {
   if (pathName.startsWith('/config/document-types')) return read ? 'settings.read' : 'settings.manage';
   if (pathName.startsWith('/config/form-templates')) return read ? 'forms.read' : 'forms.manage';
   if (pathName === '/imports/provisional-record') return 'imports.execute';
+  if (pathName === '/imports/settings') return read ? 'settings.read' : 'settings.manage';
+  if (pathName === '/imports/maintenance/cleanup') return 'settings.manage';
+  if (pathName.startsWith('/imports/heading-aliases')) return read ? 'settings.read' : 'settings.manage';
+  if (/^\/imports\/jobs\/[^/]+\/execute$/.test(pathName)) return 'imports.execute';
+  if (/^\/imports\/jobs\/[^/]+\/rollback$/.test(pathName)) return 'imports.rollback';
+  if (pathName.startsWith('/imports/conflicts')) return 'imports.resolve';
+  if (pathName.startsWith('/imports')) return 'imports.create';
 
   if (pathName === '/access-control/catalog') return 'roles.read';
   if (pathName === '/access-control/users' && read) return 'users.read';

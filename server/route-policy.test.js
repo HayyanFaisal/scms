@@ -38,6 +38,17 @@ test('configuration routes separate operational reads from management and rate p
   assert.equal(permissionForRequest({ path: '/config/parent-field-policies', method: 'GET' }), 'settings.read');
   assert.equal(permissionForRequest({ path: '/config/parent-field-policies/rankRate', method: 'PATCH' }), 'settings.manage');
   assert.equal(permissionForRequest({ path: '/imports/provisional-record', method: 'POST' }), 'imports.execute');
+  assert.equal(permissionForRequest({ path: '/imports/jobs', method: 'POST' }), 'imports.create');
+  assert.equal(permissionForRequest({ path: '/imports/jobs/12/validate', method: 'POST' }), 'imports.create');
+  assert.equal(permissionForRequest({ path: '/imports/jobs/12/result.csv', method: 'GET' }), 'imports.create');
+  assert.equal(permissionForRequest({ path: '/imports/jobs/12/result.xlsx', method: 'GET' }), 'imports.create');
+  assert.equal(permissionForRequest({ path: '/imports/settings', method: 'GET' }), 'settings.read');
+  assert.equal(permissionForRequest({ path: '/imports/settings', method: 'PATCH' }), 'settings.manage');
+  assert.equal(permissionForRequest({ path: '/imports/heading-aliases', method: 'POST' }), 'settings.manage');
+  assert.equal(permissionForRequest({ path: '/imports/maintenance/cleanup', method: 'POST' }), 'settings.manage');
+  assert.equal(permissionForRequest({ path: '/imports/jobs/12/execute', method: 'POST' }), 'imports.execute');
+  assert.equal(permissionForRequest({ path: '/imports/jobs/12/rollback', method: 'POST' }), 'imports.rollback');
+  assert.equal(permissionForRequest({ path: '/imports/conflicts/7', method: 'POST' }), 'imports.resolve');
   assert.equal(permissionForRequest({ path: '/config/document-types', method: 'POST' }), 'settings.manage');
   assert.equal(permissionForRequest({ path: '/config/document-types/2/export', method: 'GET' }), 'settings.read');
   assert.equal(permissionForRequest({ path: '/config/document-types/import', method: 'POST' }), 'settings.manage');

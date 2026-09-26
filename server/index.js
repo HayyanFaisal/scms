@@ -17,6 +17,7 @@ import { hashPassword, verifyPassword } from './security.js';
 import { assertReferenceValue, registerConfigurationRoutes } from './configuration.js';
 import { PARENT_FIELD_COLUMNS, matchParentByIdentifiers, normalizeIdentifier, refreshChildCompleteness, refreshParentCompleteness, syncParentIdentifiers } from './profile-lifecycle.js';
 import { registerDocumentManagementRoutes } from './document-management.js';
+import { recoverImportWorkers, registerImportPlatformRoutes } from './import-platform.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -40,7 +41,6 @@ const JWT_SECRET = process.env.JWT_SECRET;
 if (ENABLE_LEGACY_AUTHORITY_LOGIN && !JWT_SECRET) {
   throw new Error('JWT_SECRET is required when legacy authority authentication is enabled');
 }
-
 
 await fs.mkdir(parentDocUploadDir, { recursive: true });
 
@@ -73,21 +73,23 @@ const upload = multer({
 const allowedOrigins = new Set(
   String(process.env.SCMS_ALLOWED_ORIGINS || 'http://localhost:5173,http://127.0.0.1:5173')
     .split(',')
-    .map(origin => origin.trim())
+    .map((origin) => origin.trim())
     .filter(Boolean)
 );
 
 app.set('trust proxy', process.env.SCMS_TRUST_PROXY === 'true' ? 1 : false);
-app.use(cors({
-  credentials: true,
-  origin(origin, callback) {
-    if (!origin || allowedOrigins.has(origin)) {
-      callback(null, true);
-      return;
+app.use(
+  cors({
+    credentials: true,
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.has(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error('Origin is not allowed'));
     }
-    callback(new Error('Origin is not allowed'));
-  }
-}));
+  })
+);
 app.use(express.json({ limit: '2mb' }));
 app.use(
   '/uploads',
@@ -105,7 +107,12 @@ app.use(
       );
       const scope = await loadDataScope(pool, req.staff, 'documents');
       if (!rows[0] || !scopeAllowsAuthority(scope, rows[0].Admin_Authority)) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Document was not found in your assigned data scope.' } });
+        res.status(404).json({
+          error: {
+            code: 'NOT_FOUND',
+            message: 'Document was not found in your assigned data scope.'
+          }
+        });
         return;
       }
       next();
@@ -148,20 +155,14 @@ const parentSafeColumns = `
   Is_Provisional, Claimed_At, Block_Reason, Blocked_At
 `;
 
-const qualifiedParentSafeColumns = alias => parentSafeColumns
-  .split(',')
-  .map(column => `${alias}.${column.trim()}`)
-  .join(', ');
+const qualifiedParentSafeColumns = (alias) =>
+  parentSafeColumns
+    .split(',')
+    .map((column) => `${alias}.${column.trim()}`)
+    .join(', ');
 
 async function getBootstrap(staff) {
-  const [parentScope, documentScope, bankingScope, childScope, grantScope, gadgetScope] = await Promise.all([
-    loadDataScope(pool, staff, 'parents'),
-    loadDataScope(pool, staff, 'documents'),
-    loadDataScope(pool, staff, 'banking'),
-    loadDataScope(pool, staff, 'children'),
-    loadDataScope(pool, staff, 'grants'),
-    loadDataScope(pool, staff, 'gadgets')
-  ]);
+  const [parentScope, documentScope, bankingScope, childScope, grantScope, gadgetScope] = await Promise.all([loadDataScope(pool, staff, 'parents'), loadDataScope(pool, staff, 'documents'), loadDataScope(pool, staff, 'banking'), loadDataScope(pool, staff, 'children'), loadDataScope(pool, staff, 'grants'), loadDataScope(pool, staff, 'gadgets')]);
   const parentFilter = scopePredicate(parentScope, 'pb.Admin_Authority');
   const documentFilter = scopePredicate(documentScope, 'pb.Admin_Authority');
   const bankingFilter = scopePredicate(bankingScope, 'pb.Admin_Authority');
@@ -217,13 +218,19 @@ async function getGadgetRecord(gadgetId) {
 
 async function validateParentReferences(payload, existing = null) {
   await Promise.all([
-    assertReferenceValue(pool, 'rank', payload.Rank_Rate, { allowInactiveValue: existing?.Rank_Rate }),
-    assertReferenceValue(pool, 'unit', payload.Unit, { allowInactiveValue: existing?.Unit }),
+    assertReferenceValue(pool, 'rank', payload.Rank_Rate, {
+      allowInactiveValue: existing?.Rank_Rate
+    }),
+    assertReferenceValue(pool, 'unit', payload.Unit, {
+      allowInactiveValue: existing?.Unit
+    }),
     assertReferenceValue(pool, 'authority', payload.Admin_Authority, {
       allowInactiveValue: existing?.Admin_Authority,
       optional: true
     }),
-    assertReferenceValue(pool, 'service_status', payload.Service_Status, { allowInactiveValue: existing?.Service_Status })
+    assertReferenceValue(pool, 'service_status', payload.Service_Status, {
+      allowInactiveValue: existing?.Service_Status
+    })
   ]);
 }
 
@@ -232,7 +239,9 @@ async function validateChildReferences(payload, existing = null) {
     assertReferenceValue(pool, 'category', payload.Disability_Category, {
       allowInactiveValue: existing?.Disability_Category
     }),
-    assertReferenceValue(pool, 'school', payload.School, { allowInactiveValue: existing?.School })
+    assertReferenceValue(pool, 'school', payload.School, {
+      allowInactiveValue: existing?.School
+    })
   ]);
 }
 
@@ -250,21 +259,23 @@ app.get('/api/auth/session', (req, res, next) => staffAuth.session(req, res).cat
 app.post('/api/auth/logout', (req, res, next) => staffAuth.logout(req, res, next));
 app.get('/api/auth/authority-options', async (_req, res, next) => {
   if (!ENABLE_LEGACY_AUTHORITY_LOGIN) {
-    res.status(410).json({ message: 'Legacy authority sign-in is disabled. Use a named staff account.' });
+    res.status(410).json({
+      message: 'Legacy authority sign-in is disabled. Use a named staff account.'
+    });
     return;
   }
   try {
-    res.json((await getAuthorityNames()).map(authority => ({ value: authority, label: authority })));
+    res.json(
+      (await getAuthorityNames()).map((authority) => ({
+        value: authority,
+        label: authority
+      }))
+    );
   } catch (error) {
     next(error);
   }
 });
-app.post(
-  '/api/auth/change-password',
-  staffAuth.authenticate,
-  staffAuth.requireCsrf,
-  (req, res, next) => staffAuth.changePassword(req, res, next)
-);
+app.post('/api/auth/change-password', staffAuth.authenticate, staffAuth.requireCsrf, (req, res, next) => staffAuth.changePassword(req, res, next));
 
 app.use('/api', (req, res, next) => {
   if (req.path === '/auth/authority-login' || req.path.startsWith('/authority/')) {
@@ -287,9 +298,17 @@ app.use('/api', (req, res, next) => {
     next();
     return;
   }
-  const permission = permissionForRequest({ path: req.path, method: req.method });
+  const permission = permissionForRequest({
+    path: req.path,
+    method: req.method
+  });
   if (!permission) {
-    res.status(403).json({ error: { code: 'FORBIDDEN', message: 'No authorization policy is registered for this endpoint.' } });
+    res.status(403).json({
+      error: {
+        code: 'FORBIDDEN',
+        message: 'No authorization policy is registered for this endpoint.'
+      }
+    });
     return;
   }
   staffAuth.requirePermission(permission)(req, res, next);
@@ -308,21 +327,14 @@ app.use('/api', (req, res, next) => {
   res.on('finish', () => {
     const segments = req.path.split('/').filter(Boolean);
     const outcome = res.statusCode >= 200 && res.statusCode < 400 ? 'success' : 'failure';
-    void pool.query(
-      `INSERT INTO scms_audit_events
+    void pool
+      .query(
+        `INSERT INTO scms_audit_events
         (actor_user_id, action, entity_type, entity_id, outcome, ip_address, correlation_id, details)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        req.staff.id,
-        `http.${req.method.toLowerCase()}`,
-        segments[0] || 'api',
-        segments[1] || null,
-        outcome,
-        String(req.ip || '').slice(0, 64) || null,
-        requestCorrelationId,
-        JSON.stringify({ path: req.path, statusCode: res.statusCode })
-      ]
-    ).catch(error => console.error('[Audit] Failed to append mutation event:', error.message));
+        [req.staff.id, `http.${req.method.toLowerCase()}`, segments[0] || 'api', segments[1] || null, outcome, String(req.ip || '').slice(0, 64) || null, requestCorrelationId, JSON.stringify({ path: req.path, statusCode: res.statusCode })]
+      )
+      .catch((error) => console.error('[Audit] Failed to append mutation event:', error.message));
   });
   next();
 });
@@ -330,6 +342,7 @@ app.use('/api', (req, res, next) => {
 registerAccessControlRoutes(app, pool);
 registerConfigurationRoutes(app, pool);
 registerDocumentManagementRoutes(app, pool, transaction);
+registerImportPlatformRoutes(app, pool, transaction);
 
 app.post('/api/imports/provisional-record', async (req, res, next) => {
   try {
@@ -338,12 +351,20 @@ app.post('/api/imports/provisional-record', async (req, res, next) => {
     const pNoONo = typeof parentInput.pNoONo === 'string' ? parentInput.pNoONo.trim().toUpperCase() : '';
     const cnic = typeof parentInput.cnic === 'string' ? parentInput.cnic.trim() : '';
     if (!normalizeIdentifier(pNoONo) && !normalizeIdentifier(cnic)) {
-      res.status(400).json({ error: { code: 'IDENTIFIER_REQUIRED', message: 'A parent PN/O number or CNIC is required.' } });
+      res.status(400).json({
+        error: {
+          code: 'IDENTIFIER_REQUIRED',
+          message: 'A parent PN/O number or CNIC is required.'
+        }
+      });
       return;
     }
 
-    const result = await transaction(async connection => {
-      const match = await matchParentByIdentifiers(connection, { pNoONo, cnic });
+    const result = await transaction(async (connection) => {
+      const match = await matchParentByIdentifiers(connection, {
+        pNoONo,
+        cnic
+      });
       if (match.status === 'conflict') {
         const error = new Error('The supplied identifiers point to different parent records and require conflict review.');
         error.status = 409;
@@ -360,10 +381,12 @@ app.post('/api/imports/provisional-record', async (req, res, next) => {
             (P_No_O_No, Parent_Name, Rank_Rate, Unit, Admin_Authority, Service_Status,
              Parent_CNIC, Status, Origin, Record_State, Is_Provisional)
            VALUES (?, ?, ?, ?, ?, ?, ?, 'activation_required', 'imported', 'incomplete', TRUE)`,
-          [parentId, String(parentInput.parentName || '').trim(), parentInput.rankRate || null,
-            parentInput.unit || null, parentInput.adminAuthority || null, parentInput.serviceStatus || null, cnic || null]
+          [parentId, String(parentInput.parentName || '').trim(), parentInput.rankRate || null, parentInput.unit || null, parentInput.adminAuthority || null, parentInput.serviceStatus || null, cnic || null]
         );
-        await syncParentIdentifiers(connection, parentId, cnic, { source: 'import', verified: false });
+        await syncParentIdentifiers(connection, parentId, cnic, {
+          source: 'import',
+          verified: false
+        });
         await refreshParentCompleteness(connection, parentId);
         parentCreated = true;
       }
@@ -379,8 +402,7 @@ app.post('/api/imports/provisional-record', async (req, res, next) => {
             (P_No_O_No, Child_Name, Age, CNIC_BForm_No, School, Parent_Selected_Category,
              Status, Record_State, Is_Provisional)
            VALUES (?, ?, ?, ?, ?, ?, 'pending', 'incomplete', TRUE)`,
-          [parentId, String(childInput.childName || '').trim(), childInput.age || null,
-            String(childInput.cnicBformNo || '').trim() || null, school || null, selectedCategory || null]
+          [parentId, String(childInput.childName || '').trim(), childInput.age || null, String(childInput.cnicBformNo || '').trim() || null, school || null, selectedCategory || null]
         );
         childId = Number(childResult.insertId);
         await refreshChildCompleteness(connection, childId);
@@ -393,7 +415,12 @@ app.post('/api/imports/provisional-record', async (req, res, next) => {
                  JSON_OBJECT('parentCreated', ?, 'childId', ?))`,
         [req.staff.id, parentId, parentCreated, childId]
       );
-      return { parentPNoONo: parentId, parentCreated, childId, matchStatus: match.status };
+      return {
+        parentPNoONo: parentId,
+        parentCreated,
+        childId,
+        matchStatus: match.status
+      };
     });
     res.status(result.parentCreated || result.childId ? 201 : 200).json(result);
   } catch (error) {
@@ -433,21 +460,20 @@ app.get('/api/parents/:pNo', async (req, res) => {
 
 app.post('/api/parents', async (req, res) => {
   try {
-    const {
-      P_No_O_No, Parent_Name, Rank_Rate, Unit, Admin_Authority, Service_Status,
-      Parent_CNIC, Address, Email, Contact_No, No_of_Disabled_Children
-    } = req.body;
+    const { P_No_O_No, Parent_Name, Rank_Rate, Unit, Admin_Authority, Service_Status, Parent_CNIC, Address, Email, Contact_No, No_of_Disabled_Children } = req.body;
     await validateParentReferences(req.body);
-    await transaction(async connection => {
+    await transaction(async (connection) => {
       await connection.query(
         `INSERT INTO Parent_Beneficiary
           (P_No_O_No, Parent_Name, Rank_Rate, Unit, Admin_Authority, Service_Status,
            Parent_CNIC, Address, Email, Contact_No, No_of_Disabled_Children)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [P_No_O_No, Parent_Name, Rank_Rate, Unit, Admin_Authority || null, Service_Status,
-          Parent_CNIC, Address || null, Email || null, Contact_No || null, Number(No_of_Disabled_Children) || 0]
+        [P_No_O_No, Parent_Name, Rank_Rate, Unit, Admin_Authority || null, Service_Status, Parent_CNIC, Address || null, Email || null, Contact_No || null, Number(No_of_Disabled_Children) || 0]
       );
-      await syncParentIdentifiers(connection, P_No_O_No, Parent_CNIC, { source: 'staff_entry', verified: true });
+      await syncParentIdentifiers(connection, P_No_O_No, Parent_CNIC, {
+        source: 'staff_entry',
+        verified: true
+      });
       await refreshParentCompleteness(connection, P_No_O_No);
     });
     res.status(201).json(await getParentRecord(P_No_O_No));
@@ -459,25 +485,24 @@ app.post('/api/parents', async (req, res) => {
 app.put('/api/parents/:pNo', async (req, res) => {
   try {
     const pNo = req.params.pNo;
-    const {
-      Parent_Name, Rank_Rate, Unit, Admin_Authority, Service_Status, Parent_CNIC,
-      Address, Email, Contact_No, No_of_Disabled_Children
-    } = req.body;
+    const { Parent_Name, Rank_Rate, Unit, Admin_Authority, Service_Status, Parent_CNIC, Address, Email, Contact_No, No_of_Disabled_Children } = req.body;
     const existing = await getParentRecord(pNo);
     if (!existing) {
       res.status(404).json({ message: 'Parent not found' });
       return;
     }
     await validateParentReferences(req.body, existing);
-    await transaction(async connection => {
-      await syncParentIdentifiers(connection, pNo, Parent_CNIC, { source: 'staff_update', verified: true });
+    await transaction(async (connection) => {
+      await syncParentIdentifiers(connection, pNo, Parent_CNIC, {
+        source: 'staff_update',
+        verified: true
+      });
       await connection.query(
         `UPDATE Parent_Beneficiary
          SET Parent_Name = ?, Rank_Rate = ?, Unit = ?, Admin_Authority = ?, Service_Status = ?,
              Parent_CNIC = ?, Address = ?, Email = ?, Contact_No = ?, No_of_Disabled_Children = ?
          WHERE P_No_O_No = ?`,
-        [Parent_Name, Rank_Rate, Unit, Admin_Authority || null, Service_Status, Parent_CNIC,
-          Address || null, Email || null, Contact_No || null, Number(No_of_Disabled_Children) || 0, pNo]
+        [Parent_Name, Rank_Rate, Unit, Admin_Authority || null, Service_Status, Parent_CNIC, Address || null, Email || null, Contact_No || null, Number(No_of_Disabled_Children) || 0, pNo]
       );
       await refreshParentCompleteness(connection, pNo);
     });
@@ -617,15 +642,7 @@ app.post('/api/parents/:pNo/scanned-documents', (req, res) => {
         `INSERT INTO Parent_Document_Files
           (P_No_O_No, Doc_Type, Original_File_Name, Stored_File_Name, Mime_Type, File_Size_Bytes, Storage_Path)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [
-          pNo,
-          docType || null,
-          req.file.originalname,
-          req.file.filename,
-          req.file.mimetype,
-          req.file.size,
-          storagePath
-        ]
+        [pNo, docType || null, req.file.originalname, req.file.filename, req.file.mimetype, req.file.size, storagePath]
       );
 
       res.status(201).json(await getScannedDocumentRecord(result.insertId));
@@ -1021,7 +1038,10 @@ app.post('/api/seed-sample', async (_req, res) => {
 
 await runMigrations();
 await ensureSchema();
-
+const recoveredImports = await recoverImportWorkers();
+if (recoveredImports.resumedExecutions || recoveredImports.resumedRollbacks || recoveredImports.cleanedSources) {
+  console.log(`[Imports] Resuming ${recoveredImports.resumedExecutions} execution(s), ${recoveredImports.resumedRollbacks} rollback(s), and cleaned ${recoveredImports.cleanedSources} expired source file(s).`);
+}
 
 // =============================================================================
 // PARENT PORTAL SYNC - Admin Approval Bridge
@@ -1029,565 +1049,594 @@ await ensureSchema();
 
 // AllApproval:
 const getAllApprovals = async () => {
-    try {
-        const response = await axios.get(`${PORTAL_API_URL}/api/sync/all-requests`, {
-            headers: { 'x-api-key': PORTAL_API_KEY },
-            timeout: 5000
-        });
-        return response.data;
-    } catch (error) {
-        console.error('[Portal Sync] Failed to fetch approvals:', error.message);
-        return [];
-    }
+  try {
+    const response = await axios.get(`${PORTAL_API_URL}/api/sync/all-requests`, {
+      headers: { 'x-api-key': PORTAL_API_KEY },
+      timeout: 5000
+    });
+    return response.data;
+  } catch (error) {
+    console.error('[Portal Sync] Failed to fetch approvals:', error.message);
+    return [];
+  }
 };
 
-// getPendingApprovals for the approve action 
+// getPendingApprovals for the approve action
 const getPendingApprovals = async () => {
-    try {
-        // Fetch all pending requests (including children) from portal
-        const response = await axios.get(`${PORTAL_API_URL}/api/sync/pending`, {
-            headers: { 'x-api-key': PORTAL_API_KEY },
-            timeout: 5000
-        });
-        
-        return response.data;
-    } catch (error) {
-        console.error('[Portal Sync] Failed to fetch pending approvals:', error.message);
-        return [];
-    }
+  try {
+    // Fetch all pending requests (including children) from portal
+    const response = await axios.get(`${PORTAL_API_URL}/api/sync/pending`, {
+      headers: { 'x-api-key': PORTAL_API_KEY },
+      timeout: 5000
+    });
+
+    return response.data;
+  } catch (error) {
+    console.error('[Portal Sync] Failed to fetch pending approvals:', error.message);
+    return [];
+  }
 };
 
 // Helper: sync admin-created parent TO portal
 const syncParentToPortal = async (parentData, adminId) => {
-    try {
-        const response = await axios.post(
-            `${PORTAL_API_URL}/api/sync/admin-created-parent`,
-            {
-                pNoONo: parentData.P_No_O_No,
-                parentName: parentData.Parent_Name,
-                rankRate: parentData.Rank_Rate,
-                unit: parentData.Unit,
-                contactNo: parentData.Contact_No || null,
-                cnic: parentData.Parent_CNIC,
-                serviceStatus: parentData.Service_Status,
-                email: parentData.Email || `${parentData.P_No_O_No}@system.local`,
-                adminId: adminId || 1
-            },
-            {
-                headers: { 'x-api-key': PORTAL_API_KEY },
-                timeout: 5000
-            }
-        );
-        return response.data;
-    } catch (error) {
-        console.error('[Portal Sync] Failed to sync parent:', error.message);
-        throw new Error('Portal sync failed');
-    }
+  try {
+    const response = await axios.post(
+      `${PORTAL_API_URL}/api/sync/admin-created-parent`,
+      {
+        pNoONo: parentData.P_No_O_No,
+        parentName: parentData.Parent_Name,
+        rankRate: parentData.Rank_Rate,
+        unit: parentData.Unit,
+        contactNo: parentData.Contact_No || null,
+        cnic: parentData.Parent_CNIC,
+        serviceStatus: parentData.Service_Status,
+        email: parentData.Email || `${parentData.P_No_O_No}@system.local`,
+        adminId: adminId || 1
+      },
+      {
+        headers: { 'x-api-key': PORTAL_API_KEY },
+        timeout: 5000
+      }
+    );
+    return response.data;
+  } catch (error) {
+    console.error('[Portal Sync] Failed to sync parent:', error.message);
+    throw new Error('Portal sync failed');
+  }
 };
 
 // GET: List pending approval requests from parent portal
 app.get('/api/admin/pending-approvals', async (req, res) => {
-    try {
-        const approvals = await getPendingApprovals();
-        res.json(approvals);
-    } catch (error) {
-        sendError(res, error, 'Failed to fetch approvals');
-    }
+  try {
+    const approvals = await getPendingApprovals();
+    res.json(approvals);
+  } catch (error) {
+    sendError(res, error, 'Failed to fetch approvals');
+  }
 });
 
 // GET: List children with status from parent portal
 app.get('/api/admin/children', async (req, res) => {
-    try {
-        const response = await axios.get(`${PORTAL_API_URL}/api/admin/children`, 
-            {
-                headers: { 'x-api-key': PORTAL_API_KEY },
-                timeout: 5000
-            }
-        );
-        res.json(response.data);
-    } catch (error) {
-        sendError(res, error, 'Failed to fetch children');
-    }
+  try {
+    const response = await axios.get(`${PORTAL_API_URL}/api/admin/children`, {
+      headers: { 'x-api-key': PORTAL_API_KEY },
+      timeout: 5000
+    });
+    res.json(response.data);
+  } catch (error) {
+    sendError(res, error, 'Failed to fetch children');
+  }
 });
 
 // POST: Update child status
 app.post('/api/admin/update-child-status/:childId', async (req, res) => {
-    try {
-        const { childId } = req.params;
-        const { status } = req.body;
-        
-        const response = await axios.post(`${PORTAL_API_URL}/api/admin/update-child-status/${childId}`, 
-            { status },
-            {
-                headers: { 'x-api-key': PORTAL_API_KEY },
-                timeout: 5000
-            }
-        );
-        res.json(response.data);
-    } catch (error) {
-        sendError(res, error, 'Failed to update child status');
-    }
+  try {
+    const { childId } = req.params;
+    const { status } = req.body;
+
+    const response = await axios.post(
+      `${PORTAL_API_URL}/api/admin/update-child-status/${childId}`,
+      { status },
+      {
+        headers: { 'x-api-key': PORTAL_API_KEY },
+        timeout: 5000
+      }
+    );
+    res.json(response.data);
+  } catch (error) {
+    sendError(res, error, 'Failed to update child status');
+  }
 });
 
 // POST: Review a parent registration, child addition, or controlled parent field change.
 app.post('/api/admin/approve-request', async (req, res) => {
-    const { requestId, requestType, action, notes, approvedCategory } = req.body;
-    const allowedActions = ['approve', 'changes_required', 'reject', 'block'];
+  const { requestId, requestType, action, notes, approvedCategory } = req.body;
+  const allowedActions = ['approve', 'changes_required', 'reject', 'block'];
 
-    if (!requestId || !allowedActions.includes(action)) {
-        res.status(400).json({ message: 'Invalid review request.' });
-        return;
-    }
-    if (action === 'block' && !req.staff.permissions.includes('applications.block')) {
-        res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Blocking online access requires applications.block.' } });
-        return;
-    }
-    if (['changes_required', 'reject', 'block'].includes(action) && !String(notes || '').trim()) {
-        res.status(400).json({ message: 'A parent-facing reason is required for this decision.' });
-        return;
+  if (!requestId || !allowedActions.includes(action)) {
+    res.status(400).json({ message: 'Invalid review request.' });
+    return;
+  }
+  if (action === 'block' && !req.staff.permissions.includes('applications.block')) {
+    res.status(403).json({
+      error: {
+        code: 'FORBIDDEN',
+        message: 'Blocking online access requires applications.block.'
+      }
+    });
+    return;
+  }
+  if (['changes_required', 'reject', 'block'].includes(action) && !String(notes || '').trim()) {
+    res.status(400).json({
+      message: 'A parent-facing reason is required for this decision.'
+    });
+    return;
+  }
+
+  try {
+    const approvals = await getPendingApprovals();
+    const request = approvals.find((a) => (a.id || a.request_id) === Number(requestId) && (!requestType || a.request_type === requestType));
+
+    if (!request) {
+      res.status(404).json({ message: 'Request not found or already processed' });
+      return;
     }
 
-    try {
-        const approvals = await getPendingApprovals();
-        const request = approvals.find(a =>
-            (a.id || a.request_id) === Number(requestId) && (!requestType || a.request_type === requestType)
-        );
-
-        if (!request) {
-            res.status(404).json({ message: 'Request not found or already processed' });
-            return;
+    if (request.request_type === 'parent_field_change') {
+      await transaction(async (connection) => {
+        const [[changeRequest]] = await connection.query(`SELECT * FROM scms_parent_change_requests WHERE id = ? FOR UPDATE`, [Number(requestId)]);
+        if (!changeRequest || !['pending', 'changes_required'].includes(changeRequest.status)) {
+          const error = new Error('This profile change request is no longer reviewable.');
+          error.status = 409;
+          error.publicCode = 'REQUEST_NOT_REVIEWABLE';
+          throw error;
         }
 
-        if (request.request_type === 'parent_field_change') {
-            await transaction(async connection => {
-                const [[changeRequest]] = await connection.query(
-                    `SELECT * FROM scms_parent_change_requests WHERE id = ? FOR UPDATE`,
-                    [Number(requestId)]
-                );
-                if (!changeRequest || !['pending', 'changes_required'].includes(changeRequest.status)) {
-                    const error = new Error('This profile change request is no longer reviewable.');
-                    error.status = 409;
-                    error.publicCode = 'REQUEST_NOT_REVIEWABLE';
-                    throw error;
-                }
-
-                if (action === 'approve') {
-                    const proposed = typeof changeRequest.proposed_values === 'string'
-                        ? JSON.parse(changeRequest.proposed_values) : changeRequest.proposed_values || {};
-                    const [policies] = await connection.query(
-                        `SELECT field_code, update_mode, reference_type, is_required
+        if (action === 'approve') {
+          const proposed = typeof changeRequest.proposed_values === 'string' ? JSON.parse(changeRequest.proposed_values) : changeRequest.proposed_values || {};
+          const [policies] = await connection.query(
+            `SELECT field_code, update_mode, reference_type, is_required
                          FROM scms_parent_field_policies WHERE is_active = TRUE`
-                    );
-                    const allowedPolicies = new Map(policies.map(policy => [policy.field_code, policy]));
-                    const updates = [];
-                    const values = [];
-                    for (const [fieldCode, rawValue] of Object.entries(proposed)) {
-                        const policy = allowedPolicies.get(fieldCode);
-                        const column = PARENT_FIELD_COLUMNS[fieldCode];
-                        if (!policy || policy.update_mode !== 'approval' || !column) continue;
-                        const value = typeof rawValue === 'string' ? rawValue.trim() : rawValue;
-                        if (policy.is_required && !String(value || '').trim()) {
-                            const error = new Error(`${fieldCode} is required.`);
-                            error.status = 400;
-                            error.publicCode = 'REQUIRED_PROFILE_FIELD';
-                            throw error;
-                        }
-                        if (policy.reference_type) {
-                            await assertReferenceValue(connection, policy.reference_type, value, { optional: !policy.is_required });
-                        }
-                        updates.push(`${column} = ?`);
-                        values.push(value || null);
-                    }
-                    if (updates.length === 0) {
-                        const error = new Error('No currently permitted changes remain in this request.');
-                        error.status = 409;
-                        error.publicCode = 'NO_REVIEWABLE_CHANGES';
-                        throw error;
-                    }
-                    if (Object.prototype.hasOwnProperty.call(proposed, 'cnic')) {
-                        await connection.query(
-                            `UPDATE scms_parent_identifiers SET is_primary = FALSE
+          );
+          const allowedPolicies = new Map(policies.map((policy) => [policy.field_code, policy]));
+          const updates = [];
+          const values = [];
+          for (const [fieldCode, rawValue] of Object.entries(proposed)) {
+            const policy = allowedPolicies.get(fieldCode);
+            const column = PARENT_FIELD_COLUMNS[fieldCode];
+            if (!policy || policy.update_mode !== 'approval' || !column) continue;
+            const value = typeof rawValue === 'string' ? rawValue.trim() : rawValue;
+            if (policy.is_required && !String(value || '').trim()) {
+              const error = new Error(`${fieldCode} is required.`);
+              error.status = 400;
+              error.publicCode = 'REQUIRED_PROFILE_FIELD';
+              throw error;
+            }
+            if (policy.reference_type) {
+              await assertReferenceValue(connection, policy.reference_type, value, { optional: !policy.is_required });
+            }
+            updates.push(`${column} = ?`);
+            values.push(value || null);
+          }
+          if (updates.length === 0) {
+            const error = new Error('No currently permitted changes remain in this request.');
+            error.status = 409;
+            error.publicCode = 'NO_REVIEWABLE_CHANGES';
+            throw error;
+          }
+          if (Object.prototype.hasOwnProperty.call(proposed, 'cnic')) {
+            await connection.query(
+              `UPDATE scms_parent_identifiers SET is_primary = FALSE
                              WHERE parent_p_no_o_no = ? AND identifier_type = 'cnic'`,
-                            [changeRequest.parent_p_no_o_no]
-                        );
-                        await syncParentIdentifiers(connection, changeRequest.parent_p_no_o_no, proposed.cnic, { source: 'approved_parent_change', verified: true });
-                    }
-                    await connection.query(
-                        `UPDATE Parent_Beneficiary SET ${updates.join(', ')},
+              [changeRequest.parent_p_no_o_no]
+            );
+            await syncParentIdentifiers(connection, changeRequest.parent_p_no_o_no, proposed.cnic, { source: 'approved_parent_change', verified: true });
+          }
+          await connection.query(
+            `UPDATE Parent_Beneficiary SET ${updates.join(', ')},
                          Status = CASE WHEN Status IN ('pending', 'changes_required') THEN 'approved' ELSE Status END
                          WHERE P_No_O_No = ?`,
-                        [...values, changeRequest.parent_p_no_o_no]
-                    );
-                    const completeness = await refreshParentCompleteness(connection, changeRequest.parent_p_no_o_no);
-                    if (completeness?.recordState === 'complete') {
-                        await connection.query(
-                            `UPDATE Parent_Beneficiary SET Is_Provisional = FALSE,
+            [...values, changeRequest.parent_p_no_o_no]
+          );
+          const completeness = await refreshParentCompleteness(connection, changeRequest.parent_p_no_o_no);
+          if (completeness?.recordState === 'complete') {
+            await connection.query(
+              `UPDATE Parent_Beneficiary SET Is_Provisional = FALSE,
                              Claimed_At = COALESCE(Claimed_At, CURRENT_TIMESTAMP(3)) WHERE P_No_O_No = ?`,
-                            [changeRequest.parent_p_no_o_no]
-                        );
-                    }
-                } else {
-                    const parentStatus = action === 'block' ? 'blocked' : action === 'changes_required' ? 'changes_required' : null;
-                    if (parentStatus) {
-                        await connection.query(
-                            `UPDATE Parent_Beneficiary SET Status = ?,
+              [changeRequest.parent_p_no_o_no]
+            );
+          }
+        } else {
+          const parentStatus = action === 'block' ? 'blocked' : action === 'changes_required' ? 'changes_required' : null;
+          if (parentStatus) {
+            await connection.query(
+              `UPDATE Parent_Beneficiary SET Status = ?,
                              Block_Reason = CASE WHEN ? = 'blocked' THEN ? ELSE Block_Reason END,
                              Blocked_At = CASE WHEN ? = 'blocked' THEN CURRENT_TIMESTAMP(3) ELSE Blocked_At END,
                              Credential_Version = CASE WHEN ? = 'blocked' THEN Credential_Version + 1 ELSE Credential_Version END
                              WHERE P_No_O_No = ?`,
-                            [parentStatus, parentStatus, String(notes).trim(), parentStatus, parentStatus, changeRequest.parent_p_no_o_no]
-                        );
-                    }
-                }
-                const requestStatus = action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : action;
-                await connection.query(
-                    `UPDATE scms_parent_change_requests SET status = ?, review_reason = ?,
+              [parentStatus, parentStatus, String(notes).trim(), parentStatus, parentStatus, changeRequest.parent_p_no_o_no]
+            );
+          }
+        }
+        const requestStatus = action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : action;
+        await connection.query(
+          `UPDATE scms_parent_change_requests SET status = ?, review_reason = ?,
                      reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP(3) WHERE id = ?`,
-                    [requestStatus, String(notes || '').trim() || 'Approved after staff review', req.staff.id, Number(requestId)]
-                );
-                await connection.query(
-                    `INSERT INTO scms_audit_events
+          [requestStatus, String(notes || '').trim() || 'Approved after staff review', req.staff.id, Number(requestId)]
+        );
+        await connection.query(
+          `INSERT INTO scms_audit_events
                       (actor_user_id, action, entity_type, entity_id, reason, correlation_id, details)
                      VALUES (?, ?, 'parent_change_request', ?, ?, UUID(), JSON_OBJECT('parent', ?, 'decision', ?))`,
-                    [req.staff.id, `parent_change_request.${requestStatus}`, String(requestId), String(notes || '').trim() || null, changeRequest.parent_p_no_o_no, requestStatus]
-                );
-            });
-            res.json({ success: true, message: `Profile change request ${action === 'approve' ? 'approved' : action.replace('_', ' ')}.` });
-            return;
-        }
+          [req.staff.id, `parent_change_request.${requestStatus}`, String(requestId), String(notes || '').trim() || null, changeRequest.parent_p_no_o_no, requestStatus]
+        );
+      });
+      res.json({
+        success: true,
+        message: `Profile change request ${action === 'approve' ? 'approved' : action.replace('_', ' ')}.`
+      });
+      return;
+    }
 
-        let mainDbChildId = null;
+    let mainDbChildId = null;
 
-        if (action === 'approve') {
-            // Insert into MAIN database (pnba) - this is the only write path
-            if (request.request_type === 'parent_registration') {
-                // Check if parent already exists in main DB
-                const existing = await query(
-                    'SELECT P_No_O_No FROM Parent_Beneficiary WHERE P_No_O_No = ?',
-                    [request.p_no_o_no]
-                );
+    if (action === 'approve') {
+      // Insert into MAIN database (pnba) - this is the only write path
+      if (request.request_type === 'parent_registration') {
+        // Check if parent already exists in main DB
+        const existing = await query('SELECT P_No_O_No FROM Parent_Beneficiary WHERE P_No_O_No = ?', [request.p_no_o_no]);
 
-                if (existing.length === 0) {
-                    const payload = request.payload;
-                    await query(
-                        `INSERT INTO Parent_Beneficiary 
+        if (existing.length === 0) {
+          const payload = request.payload;
+          await query(
+            `INSERT INTO Parent_Beneficiary
                          (P_No_O_No, Parent_Name, Rank_Rate, Unit, Admin_Authority, Service_Status, Parent_CNIC)
                          VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                        [
-                            request.p_no_o_no,
-                            payload.parentName,
-                            payload.rankRate,
-                            payload.unit,
-                            payload.adminAuthority || null, // Admin_Authority not in portal payload
-                            payload.serviceStatus,
-                            payload.cnic
-                        ]
-                    );
-                }
-            } else if (request.request_type === 'child_addition') {
-                const category = typeof approvedCategory === 'string' ? approvedCategory.trim() : '';
-                if (!category) {
-                    res.status(400).json({ message: 'Choose an approved category.' });
-                    return;
-                }
-                await assertReferenceValue(pool, 'category', category);
-                // For child additions, just update the status since child is already in database
-                const newStatus = action === 'approve' ? 'approved' : 'rejected';
-                
-                // Get the actual Child_ID from the request
-                const childIdToUpdate = request.id || requestId;
-                try {
-                    await transaction(async connection => {
-                        const [[child]] = await connection.query(
-                            'SELECT Parent_Selected_Category FROM dependent_children WHERE Child_ID = ? FOR UPDATE',
-                            [childIdToUpdate]
-                        );
-                        await connection.query(
-                            `UPDATE dependent_children SET Status = ?, Approved_Category = ?,
+            [
+              request.p_no_o_no,
+              payload.parentName,
+              payload.rankRate,
+              payload.unit,
+              payload.adminAuthority || null, // Admin_Authority not in portal payload
+              payload.serviceStatus,
+              payload.cnic
+            ]
+          );
+        }
+      } else if (request.request_type === 'child_addition') {
+        const category = typeof approvedCategory === 'string' ? approvedCategory.trim() : '';
+        if (!category) {
+          res.status(400).json({ message: 'Choose an approved category.' });
+          return;
+        }
+        await assertReferenceValue(pool, 'category', category);
+        // For child additions, just update the status since child is already in database
+        const newStatus = action === 'approve' ? 'approved' : 'rejected';
+
+        // Get the actual Child_ID from the request
+        const childIdToUpdate = request.id || requestId;
+        try {
+          await transaction(async (connection) => {
+            const [[child]] = await connection.query('SELECT Parent_Selected_Category FROM dependent_children WHERE Child_ID = ? FOR UPDATE', [childIdToUpdate]);
+            await connection.query(
+              `UPDATE dependent_children SET Status = ?, Approved_Category = ?,
                              Disability_Category = ?, Category = ? WHERE Child_ID = ?`,
-                            [newStatus, category, category, category, childIdToUpdate]
-                        );
-                        await connection.query(
-                            `INSERT INTO scms_child_category_decisions
+              [newStatus, category, category, category, childIdToUpdate]
+            );
+            await connection.query(
+              `INSERT INTO scms_child_category_decisions
                               (child_id, claimed_category, approved_category, reason, decided_by)
                              VALUES (?, ?, ?, ?, ?)`,
-                            [childIdToUpdate, child?.Parent_Selected_Category || null, category, notes?.trim() || 'Approved after staff review', req.staff.id]
-                        );
-                    });
-                } catch (updateError) {
-                    console.error('Admin: Failed to update child status:', updateError);
-                    throw updateError;
-                }
-                
-                mainDbChildId = childIdToUpdate; // Child already exists, use existing ID
-            }
+              [childIdToUpdate, child?.Parent_Selected_Category || null, category, notes?.trim() || 'Approved after staff review', req.staff.id]
+            );
+          });
+        } catch (updateError) {
+          console.error('Admin: Failed to update child status:', updateError);
+          throw updateError;
         }
 
-        // Notify portal system of the decision
-        await axios.post(
-            `${PORTAL_API_URL}/api/sync/approval`,
-            {
-                requestId: Number(requestId),
-                requestType: request.request_type,
-                action,
-                adminNotes: notes || '',
-                mainDbChildId,
-                approvedCategory: action === 'approve' && request.request_type === 'child_addition' ? approvedCategory : null
-            },
-            {
-                headers: { 'x-api-key': PORTAL_API_KEY },
-                timeout: 5000
-            }
-        );
-
-        res.json({ success: true, message: `Request ${action}d successfully` });
-
-    } catch (error) {
-        sendError(res, error, 'Approval processing failed');
+        mainDbChildId = childIdToUpdate; // Child already exists, use existing ID
+      }
     }
+
+    // Notify portal system of the decision
+    await axios.post(
+      `${PORTAL_API_URL}/api/sync/approval`,
+      {
+        requestId: Number(requestId),
+        requestType: request.request_type,
+        action,
+        adminNotes: notes || '',
+        mainDbChildId,
+        approvedCategory: action === 'approve' && request.request_type === 'child_addition' ? approvedCategory : null
+      },
+      {
+        headers: { 'x-api-key': PORTAL_API_KEY },
+        timeout: 5000
+      }
+    );
+
+    res.json({ success: true, message: `Request ${action}d successfully` });
+  } catch (error) {
+    sendError(res, error, 'Approval processing failed');
+  }
 });
 
 // POST: Create parent in main DB + sync to portal (admin action)
 app.post('/api/admin/parents-with-portal', async (req, res) => {
-    try {
-        const { P_No_O_No, Parent_Name, Rank_Rate, Unit, Admin_Authority, Service_Status, Parent_CNIC, Email } = req.body;
+  try {
+    const { P_No_O_No, Parent_Name, Rank_Rate, Unit, Admin_Authority, Service_Status, Parent_CNIC, Email } = req.body;
 
-        // Insert into main DB first
-        await query(
-            `INSERT INTO Parent_Beneficiary
+    // Insert into main DB first
+    await query(
+      `INSERT INTO Parent_Beneficiary
              (P_No_O_No, Parent_Name, Rank_Rate, Unit, Admin_Authority, Service_Status, Parent_CNIC)
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [P_No_O_No, Parent_Name, Rank_Rate, Unit, Admin_Authority || null, Service_Status, Parent_CNIC]
-        );
+      [P_No_O_No, Parent_Name, Rank_Rate, Unit, Admin_Authority || null, Service_Status, Parent_CNIC]
+    );
 
-        // Sync to portal (creates login credentials)
-        let portalData = null;
-        try {
-            portalData = await syncParentToPortal({
-                P_No_O_No, Parent_Name, Rank_Rate, Unit,
-                Contact_No: null, Parent_CNIC, Service_Status, Email
-            }, req.staff.id);
-        } catch (syncErr) {
-            console.error('[Portal Sync] Error:', syncErr.message);
-        }
-
-        const newParent = await getParentRecord(P_No_O_No);
-
-        res.status(201).json({
-            ...newParent,
-            portalAccess: portalData ? {
-                loginId: P_No_O_No,
-                oneTimePassword: portalData.oneTimePassword,
-                expiresAt: portalData.expiresAt,
-                note: 'Shown once. Share securely; it expires in 24 hours and must be changed.'
-            } : {
-                note: 'Portal sync failed - retry from admin panel'
-            }
-        });
-
-    } catch (error) {
-        sendError(res, error);
+    // Sync to portal (creates login credentials)
+    let portalData = null;
+    try {
+      portalData = await syncParentToPortal(
+        {
+          P_No_O_No,
+          Parent_Name,
+          Rank_Rate,
+          Unit,
+          Contact_No: null,
+          Parent_CNIC,
+          Service_Status,
+          Email
+        },
+        req.staff.id
+      );
+    } catch (syncErr) {
+      console.error('[Portal Sync] Error:', syncErr.message);
     }
+
+    const newParent = await getParentRecord(P_No_O_No);
+
+    res.status(201).json({
+      ...newParent,
+      portalAccess: portalData
+        ? {
+            loginId: P_No_O_No,
+            oneTimePassword: portalData.oneTimePassword,
+            expiresAt: portalData.expiresAt,
+            note: 'Shown once. Share securely; it expires in 24 hours and must be changed.'
+          }
+        : {
+            note: 'Portal sync failed - retry from admin panel'
+          }
+    });
+  } catch (error) {
+    sendError(res, error);
+  }
 });
 
 app.post('/api/admin/reset-parent-password', async (req, res, next) => {
-    try {
-        const pNoONo = typeof req.body?.pNoONo === 'string' ? req.body.pNoONo.trim() : '';
-        if (!pNoONo) {
-            res.status(400).json({ error: { code: 'INVALID_PARENT', message: 'P.No/O.No is required.' } });
-            return;
-        }
-        const response = await axios.post(
-            `${PORTAL_API_URL}/api/sync/reset-parent-password`,
-            { pNoONo, actorUserId: req.staff.id },
-            { headers: { 'x-api-key': PORTAL_API_KEY }, timeout: 5000 }
-        );
-        await pool.query(
-            `INSERT INTO scms_audit_events
+  try {
+    const pNoONo = typeof req.body?.pNoONo === 'string' ? req.body.pNoONo.trim() : '';
+    if (!pNoONo) {
+      res.status(400).json({
+        error: { code: 'INVALID_PARENT', message: 'P.No/O.No is required.' }
+      });
+      return;
+    }
+    const response = await axios.post(`${PORTAL_API_URL}/api/sync/reset-parent-password`, { pNoONo, actorUserId: req.staff.id }, { headers: { 'x-api-key': PORTAL_API_KEY }, timeout: 5000 });
+    await pool.query(
+      `INSERT INTO scms_audit_events
               (actor_user_id, action, entity_type, entity_id, correlation_id, details)
              VALUES (?, 'parent.one_time_password.issued', 'parent', ?, UUID(), JSON_OBJECT('expiresAt', ?))`,
-            [req.staff.id, pNoONo, response.data.expiresAt]
-        );
-        res.json(response.data);
-    } catch (error) {
-        if (error.response?.status === 404) {
-            res.status(404).json({ error: { code: 'PARENT_NOT_FOUND', message: 'Parent account was not found.' } });
-            return;
+      [req.staff.id, pNoONo, response.data.expiresAt]
+    );
+    res.json(response.data);
+  } catch (error) {
+    if (error.response?.status === 404) {
+      res.status(404).json({
+        error: {
+          code: 'PARENT_NOT_FOUND',
+          message: 'Parent account was not found.'
         }
-        next(error);
+      });
+      return;
     }
+    next(error);
+  }
 });
 
 app.post('/api/admin/parents/:pNo/restore-access', async (req, res, next) => {
-    const pNo = String(req.params.pNo || '').trim();
-    const reason = String(req.body?.reason || '').trim();
-    if (!pNo || reason.length < 5) {
-        res.status(400).json({ error: { code: 'RESTORE_REASON_REQUIRED', message: 'A restore reason of at least 5 characters is required.' } });
-        return;
-    }
+  const pNo = String(req.params.pNo || '').trim();
+  const reason = String(req.body?.reason || '').trim();
+  if (!pNo || reason.length < 5) {
+    res.status(400).json({
+      error: {
+        code: 'RESTORE_REASON_REQUIRED',
+        message: 'A restore reason of at least 5 characters is required.'
+      }
+    });
+    return;
+  }
 
-    try {
-        const restoredStatus = await transaction(async connection => {
-            const [[parent]] = await connection.query(
-                'SELECT Status, Record_State FROM Parent_Beneficiary WHERE P_No_O_No = ? FOR UPDATE',
-                [pNo]
-            );
-            if (!parent) {
-                const error = new Error('Parent account not found.');
-                error.status = 404;
-                error.publicCode = 'PARENT_NOT_FOUND';
-                throw error;
-            }
-            if (!['blocked', 'rejected'].includes(parent.Status)) {
-                const error = new Error('Only blocked or rejected parent access can be restored.');
-                error.status = 409;
-                error.publicCode = 'ACCOUNT_NOT_RESTRICTED';
-                throw error;
-            }
-            const nextStatus = parent.Record_State === 'complete' ? 'approved' : 'changes_required';
-            await connection.query(
-                `UPDATE Parent_Beneficiary
+  try {
+    const restoredStatus = await transaction(async (connection) => {
+      const [[parent]] = await connection.query('SELECT Status, Record_State FROM Parent_Beneficiary WHERE P_No_O_No = ? FOR UPDATE', [pNo]);
+      if (!parent) {
+        const error = new Error('Parent account not found.');
+        error.status = 404;
+        error.publicCode = 'PARENT_NOT_FOUND';
+        throw error;
+      }
+      if (!['blocked', 'rejected'].includes(parent.Status)) {
+        const error = new Error('Only blocked or rejected parent access can be restored.');
+        error.status = 409;
+        error.publicCode = 'ACCOUNT_NOT_RESTRICTED';
+        throw error;
+      }
+      const nextStatus = parent.Record_State === 'complete' ? 'approved' : 'changes_required';
+      await connection.query(
+        `UPDATE Parent_Beneficiary
                  SET Status = ?, Block_Reason = NULL, Blocked_At = NULL,
                      Credential_Version = Credential_Version + 1
                  WHERE P_No_O_No = ?`,
-                [nextStatus, pNo]
-            );
-            await connection.query(
-                `INSERT INTO scms_audit_events
+        [nextStatus, pNo]
+      );
+      await connection.query(
+        `INSERT INTO scms_audit_events
                   (actor_user_id, action, entity_type, entity_id, reason, correlation_id, details)
                  VALUES (?, 'parent.portal_access_restored', 'parent', ?, ?, UUID(),
                          JSON_OBJECT('previousStatus', ?, 'restoredStatus', ?))`,
-                [req.staff.id, pNo, reason, parent.Status, nextStatus]
-            );
-            return nextStatus;
-        });
-        res.json({ message: 'Parent portal access restored. Existing sessions remain revoked.', status: restoredStatus });
-    } catch (error) {
-        next(error);
-    }
+        [req.staff.id, pNo, reason, parent.Status, nextStatus]
+      );
+      return nextStatus;
+    });
+    res.json({
+      message: 'Parent portal access restored. Existing sessions remain revoked.',
+      status: restoredStatus
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 // GET: Check portal connection health
 app.get('/api/admin/portal-health', async (_req, res) => {
-    try {
-        const response = await axios.get(`${PORTAL_API_URL}/health`, { timeout: 3000 });
-        res.json({ connected: true, portal: response.data });
-    } catch (error) {
-        console.error('Parent portal health check failed:', error.message);
-        res.status(503).json({ connected: false, error: 'Parent portal is unavailable' });
-    }
+  try {
+    const response = await axios.get(`${PORTAL_API_URL}/health`, {
+      timeout: 3000
+    });
+    res.json({ connected: true, portal: response.data });
+  } catch (error) {
+    console.error('Parent portal health check failed:', error.message);
+    res.status(503).json({ connected: false, error: 'Parent portal is unavailable' });
+  }
 });
 
 // GET: Child documents from portal
 app.get('/api/admin/child-documents', async (req, res) => {
-    const { childId } = req.query;
-    
-    if (!childId) return res.status(400).json({ error: 'childId required' });
+  const { childId } = req.query;
 
-    try {
-        const url = `${PORTAL_API_URL}/api/children/${childId}/documents`;
-        
-        const response = await axios.get(url, {
-            headers: { 'x-api-key': PORTAL_API_KEY },
-            timeout: 5000
-        });
-        
-        res.json(response.data);
-    } catch (error) {
-        console.error('Admin: Failed to fetch documents:', error.message);
-        if (error.response) console.error('Admin: Portal response status:', error.response.status);
-        res.status(502).json({ error: 'Failed to fetch documents' });
-    }
+  if (!childId) return res.status(400).json({ error: 'childId required' });
+
+  try {
+    const url = `${PORTAL_API_URL}/api/children/${childId}/documents`;
+
+    const response = await axios.get(url, {
+      headers: { 'x-api-key': PORTAL_API_KEY },
+      timeout: 5000
+    });
+
+    res.json(response.data);
+  } catch (error) {
+    console.error('Admin: Failed to fetch documents:', error.message);
+    if (error.response) console.error('Admin: Portal response status:', error.response.status);
+    res.status(502).json({ error: 'Failed to fetch documents' });
+  }
 });
 
 // GET: View document image (proxies to portal file system)
 app.get('/api/admin/document-view', async (req, res) => {
-    const { path: filePath } = req.query;
-    
-    if (!filePath) return res.status(400).json({ error: 'Path required' });
+  const { path: filePath } = req.query;
 
-    try {
-        // Forward to portal's document viewer
-        const url = `${PORTAL_API_URL}/api/documents/view`;
-        
-        const response = await axios.get(url, {
-            headers: { 'x-api-key': PORTAL_API_KEY },
-            params: { path: filePath },
-            responseType: 'stream',
-            timeout: 10000
-        });
-        
-        res.set('Content-Type', response.headers['content-type']);
-        response.data.pipe(res);
-    } catch (error) {
-        console.error('Admin: Failed to fetch document:', error.message);
-        if (error.response) console.error('Admin: Portal response status:', error.response.status);
-        res.status(404).json({ error: 'Document not found' });
-    }
+  if (!filePath) return res.status(400).json({ error: 'Path required' });
+
+  try {
+    // Forward to portal's document viewer
+    const url = `${PORTAL_API_URL}/api/documents/view`;
+
+    const response = await axios.get(url, {
+      headers: { 'x-api-key': PORTAL_API_KEY },
+      params: { path: filePath },
+      responseType: 'stream',
+      timeout: 10000
+    });
+
+    res.set('Content-Type', response.headers['content-type']);
+    response.data.pipe(res);
+  } catch (error) {
+    console.error('Admin: Failed to fetch document:', error.message);
+    if (error.response) console.error('Admin: Portal response status:', error.response.status);
+    res.status(404).json({ error: 'Document not found' });
+  }
 });
 
 async function getAuthorityNames() {
-    const rows = await query(
-      `SELECT name AS authority FROM scms_reference_items
+  const rows = await query(
+    `SELECT name AS authority FROM scms_reference_items
        WHERE item_type = 'authority' AND is_active = TRUE
        ORDER BY sort_order, name`
-    );
-    return rows.map(row => row.authority);
+  );
+  return rows.map((row) => row.authority);
 }
 
 // Temporary shared-authority authentication. The long-term target remains named RBAC accounts.
 app.post('/api/auth/authority-login', async (req, res) => {
-    if (!ENABLE_LEGACY_AUTHORITY_LOGIN) {
-        return res.status(410).json({ message: 'Legacy shared authority login is disabled. Use an assigned staff account.' });
-    }
-    const authority = typeof req.body?.authority === 'string' ? req.body.authority.trim() : '';
-    const password = typeof req.body?.password === 'string' ? req.body.password : '';
-    if (!authority || !password) return res.status(400).json({ message: 'Authority and password are required' });
+  if (!ENABLE_LEGACY_AUTHORITY_LOGIN) {
+    return res.status(410).json({
+      message: 'Legacy shared authority login is disabled. Use an assigned staff account.'
+    });
+  }
+  const authority = typeof req.body?.authority === 'string' ? req.body.authority.trim() : '';
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  if (!authority || !password) return res.status(400).json({ message: 'Authority and password are required' });
 
-    try {
-        const [authRows] = await pool.execute(
-            `SELECT id, password_hash, must_change_password, temporary_password_expires_at, credential_version
+  try {
+    const [authRows] = await pool.execute(
+      `SELECT id, password_hash, must_change_password, temporary_password_expires_at, credential_version
              FROM authority_passwords WHERE authority = ?`,
-            [authority]
-        );
-        const credential = authRows[0];
-        if (!credential || !credential.password_hash || !(await verifyPassword(password, credential.password_hash))) {
-            return res.status(401).json({ message: 'Invalid credentials' });
-        }
-        if (credential.must_change_password && credential.temporary_password_expires_at &&
-            new Date(credential.temporary_password_expires_at).getTime() <= Date.now()) {
-            return res.status(403).json({ message: 'The temporary password has expired. Contact an authorized administrator for a reset.' });
-        }
-
-        const token = jwt.sign(
-            { type: 'authority', authority, credentialVersion: Number(credential.credential_version) },
-            JWT_SECRET,
-            { expiresIn: '8h' }
-        );
-        res.json({ token, authority, mustChangePassword: Boolean(credential.must_change_password) });
-    } catch (error) {
-        console.error('Authority login error:', error instanceof Error ? error.message : error);
-        res.status(500).json({ message: 'Server error' });
+      [authority]
+    );
+    const credential = authRows[0];
+    if (!credential || !credential.password_hash || !(await verifyPassword(password, credential.password_hash))) {
+      return res.status(401).json({ message: 'Invalid credentials' });
     }
+    if (credential.must_change_password && credential.temporary_password_expires_at && new Date(credential.temporary_password_expires_at).getTime() <= Date.now()) {
+      return res.status(403).json({
+        message: 'The temporary password has expired. Contact an authorized administrator for a reset.'
+      });
+    }
+
+    const token = jwt.sign(
+      {
+        type: 'authority',
+        authority,
+        credentialVersion: Number(credential.credential_version)
+      },
+      JWT_SECRET,
+      { expiresIn: '8h' }
+    );
+    res.json({
+      token,
+      authority,
+      mustChangePassword: Boolean(credential.must_change_password)
+    });
+  } catch (error) {
+    console.error('Authority login error:', error instanceof Error ? error.message : error);
+    res.status(500).json({ message: 'Server error' });
+  }
 });
 
 // Staff override: requires the dedicated authority_accounts.reset_password permission.
 app.post('/api/auth/reset-authority-password', async (req, res, next) => {
-    const authority = typeof req.body?.authority === 'string' ? req.body.authority.trim() : '';
-    const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
-    if (!authority || newPassword.length < 12) {
-        return res.status(400).json({ message: 'Select an authority and use a temporary password of at least 12 characters.' });
-    }
+  const authority = typeof req.body?.authority === 'string' ? req.body.authority.trim() : '';
+  const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
+  if (!authority || newPassword.length < 12) {
+    return res.status(400).json({
+      message: 'Select an authority and use a temporary password of at least 12 characters.'
+    });
+  }
 
-    const connection = await pool.getConnection();
-    try {
-        const knownAuthorities = await getAuthorityNames();
-        if (!knownAuthorities.includes(authority)) return res.status(404).json({ message: 'Authority not found' });
-        const passwordHash = await hashPassword(newPassword);
-        const expiresAt = new Date(Date.now() + 24 * 60 * 60_000);
-        await connection.beginTransaction();
-        await connection.query(
-            `INSERT INTO authority_passwords
+  const connection = await pool.getConnection();
+  try {
+    const knownAuthorities = await getAuthorityNames();
+    if (!knownAuthorities.includes(authority)) return res.status(404).json({ message: 'Authority not found' });
+    const passwordHash = await hashPassword(newPassword);
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60_000);
+    await connection.beginTransaction();
+    await connection.query(
+      `INSERT INTO authority_passwords
               (authority, password, password_hash, must_change_password,
                temporary_password_expires_at, credential_version, reset_by)
              VALUES (?, NULL, ?, TRUE, ?, 1, ?)
@@ -1598,178 +1647,193 @@ app.post('/api/auth/reset-authority-password', async (req, res, next) => {
                temporary_password_expires_at = VALUES(temporary_password_expires_at),
                credential_version = credential_version + 1,
                reset_by = VALUES(reset_by)`,
-            [authority, passwordHash, expiresAt, req.staff.id]
-        );
-        await connection.query(
-            `INSERT INTO scms_audit_events
+      [authority, passwordHash, expiresAt, req.staff.id]
+    );
+    await connection.query(
+      `INSERT INTO scms_audit_events
               (actor_user_id, action, entity_type, entity_id, correlation_id, details)
              VALUES (?, 'authority.password_reset', 'authority', ?, UUID(), JSON_OBJECT('expiresAt', ?))`,
-            [req.staff.id, authority, expiresAt.toISOString()]
-        );
-        await connection.commit();
-        res.json({ message: 'Temporary authority password issued.', temporaryPasswordExpiresAt: expiresAt });
-    } catch (error) {
-        await connection.rollback();
-        next(error);
-    } finally {
-        connection.release();
-    }
+      [req.staff.id, authority, expiresAt.toISOString()]
+    );
+    await connection.commit();
+    res.json({
+      message: 'Temporary authority password issued.',
+      temporaryPasswordExpiresAt: expiresAt
+    });
+  } catch (error) {
+    await connection.rollback();
+    next(error);
+  } finally {
+    connection.release();
+  }
 });
 
 // Get authority credential status for staff settings. No hashes or secrets leave the server.
 app.get('/api/auth/authorities', async (_req, res) => {
-    try {
-        const authorities = await getAuthorityNames();
-        const [passwordRows] = await pool.execute(
-            `SELECT authority, password_hash, must_change_password,
+  try {
+    const authorities = await getAuthorityNames();
+    const [passwordRows] = await pool.execute(
+      `SELECT authority, password_hash, must_change_password,
                     temporary_password_expires_at, updated_at
              FROM authority_passwords`
-        );
-        const statusByAuthority = new Map(passwordRows.map(row => [row.authority, row]));
-        res.json(authorities.map(authority => {
-            const credential = statusByAuthority.get(authority);
-            return {
-                value: authority,
-                label: authority,
-                hasCredential: Boolean(credential?.password_hash),
-                mustChangePassword: Boolean(credential?.must_change_password),
-                temporaryPasswordExpiresAt: credential?.temporary_password_expires_at || null,
-                lastUpdated: credential?.updated_at || null
-            };
-        }));
-    } catch (error) {
-        console.error('Get authorities error:', error instanceof Error ? error.message : error);
-        res.status(500).json({ message: 'Server error' });
-    }
+    );
+    const statusByAuthority = new Map(passwordRows.map((row) => [row.authority, row]));
+    res.json(
+      authorities.map((authority) => {
+        const credential = statusByAuthority.get(authority);
+        return {
+          value: authority,
+          label: authority,
+          hasCredential: Boolean(credential?.password_hash),
+          mustChangePassword: Boolean(credential?.must_change_password),
+          temporaryPasswordExpiresAt: credential?.temporary_password_expires_at || null,
+          lastUpdated: credential?.updated_at || null
+        };
+      })
+    );
+  } catch (error) {
+    console.error('Get authorities error:', error instanceof Error ? error.message : error);
+    res.status(500).json({ message: 'Server error' });
+  }
 });
 
 // Authority middleware verifies the credential version so a Director reset revokes old JWTs.
 const authenticateAuthority = async (req, res, next) => {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token || !JWT_SECRET) return res.status(401).json({ message: 'Authority sign-in is required' });
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token || !JWT_SECRET) return res.status(401).json({ message: 'Authority sign-in is required' });
 
-    try {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        if (decoded.type !== 'authority' || typeof decoded.authority !== 'string') {
-            return res.status(403).json({ message: 'Invalid token type' });
-        }
-        const [rows] = await pool.execute(
-            `SELECT id, must_change_password, credential_version
-             FROM authority_passwords WHERE authority = ?`,
-            [decoded.authority]
-        );
-        const credential = rows[0];
-        if (!credential || Number(credential.credential_version) !== Number(decoded.credentialVersion)) {
-            return res.status(401).json({ message: 'Authority session is no longer valid' });
-        }
-        const isPasswordChange = String(req.originalUrl || '').startsWith('/api/authority/change-password');
-        if (credential.must_change_password && !isPasswordChange) {
-            return res.status(403).json({ message: 'Replace the temporary password before accessing authority data.' });
-        }
-        req.authority = decoded.authority;
-        req.authorityCredentialId = Number(credential.id);
-        next();
-    } catch {
-        return res.status(401).json({ message: 'Invalid or expired authority session' });
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    if (decoded.type !== 'authority' || typeof decoded.authority !== 'string') {
+      return res.status(403).json({ message: 'Invalid token type' });
     }
+    const [rows] = await pool.execute(
+      `SELECT id, must_change_password, credential_version
+             FROM authority_passwords WHERE authority = ?`,
+      [decoded.authority]
+    );
+    const credential = rows[0];
+    if (!credential || Number(credential.credential_version) !== Number(decoded.credentialVersion)) {
+      return res.status(401).json({ message: 'Authority session is no longer valid' });
+    }
+    const isPasswordChange = String(req.originalUrl || '').startsWith('/api/authority/change-password');
+    if (credential.must_change_password && !isPasswordChange) {
+      return res.status(403).json({
+        message: 'Replace the temporary password before accessing authority data.'
+      });
+    }
+    req.authority = decoded.authority;
+    req.authorityCredentialId = Number(credential.id);
+    next();
+  } catch {
+    return res.status(401).json({ message: 'Invalid or expired authority session' });
+  }
 };
 
 // Authority self-service: requires the current password and immediately revokes the old JWT.
 app.post('/api/authority/change-password', authenticateAuthority, async (req, res, next) => {
-    const currentPassword = typeof req.body?.currentPassword === 'string' ? req.body.currentPassword : '';
-    const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
-    if (!currentPassword || newPassword.length < 12) {
-        return res.status(400).json({ message: 'The new password must be at least 12 characters.' });
-    }
-    if (currentPassword === newPassword) return res.status(400).json({ message: 'Choose a password different from the current password.' });
+  const currentPassword = typeof req.body?.currentPassword === 'string' ? req.body.currentPassword : '';
+  const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
+  if (!currentPassword || newPassword.length < 12) {
+    return res.status(400).json({ message: 'The new password must be at least 12 characters.' });
+  }
+  if (currentPassword === newPassword)
+    return res.status(400).json({
+      message: 'Choose a password different from the current password.'
+    });
 
-    try {
-        const [rows] = await pool.execute(
-            'SELECT password_hash FROM authority_passwords WHERE id = ?',
-            [req.authorityCredentialId]
-        );
-        if (!rows[0] || !(await verifyPassword(currentPassword, rows[0].password_hash))) {
-            return res.status(401).json({ message: 'Current password is incorrect' });
-        }
-        const passwordHash = await hashPassword(newPassword);
-        await pool.execute(
-            `UPDATE authority_passwords
+  try {
+    const [rows] = await pool.execute('SELECT password_hash FROM authority_passwords WHERE id = ?', [req.authorityCredentialId]);
+    if (!rows[0] || !(await verifyPassword(currentPassword, rows[0].password_hash))) {
+      return res.status(401).json({ message: 'Current password is incorrect' });
+    }
+    const passwordHash = await hashPassword(newPassword);
+    await pool.execute(
+      `UPDATE authority_passwords
              SET password = NULL, password_hash = ?, must_change_password = FALSE,
                  temporary_password_expires_at = NULL, credential_version = credential_version + 1
              WHERE id = ?`,
-            [passwordHash, req.authorityCredentialId]
-        );
-        await pool.execute(
-            `INSERT INTO scms_audit_events
+      [passwordHash, req.authorityCredentialId]
+    );
+    await pool.execute(
+      `INSERT INTO scms_audit_events
               (action, entity_type, entity_id, correlation_id, details)
              VALUES ('authority.change_password', 'authority', ?, UUID(), JSON_OBJECT('selfService', TRUE))`,
-            [req.authority]
-        );
-        res.json({ message: 'Password changed. Sign in again with the new password.' });
-    } catch (error) {
-        next(error);
-    }
+      [req.authority]
+    );
+    res.json({
+      message: 'Password changed. Sign in again with the new password.'
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 // Authority-specific data endpoints
 app.get('/api/authority/parents', authenticateAuthority, async (req, res) => {
-    try {
-        const [parents] = await pool.execute(
-            `SELECT ${parentSafeColumns} FROM Parent_Beneficiary WHERE Admin_Authority = ? ORDER BY Parent_Name`,
-            [req.authority]
-        );
-        res.json(parents);
-    } catch (error) {
-        console.error('Failed to fetch authority parents:', error);
-        res.status(500).json({ message: 'Server error' });
-    }
+  try {
+    const [parents] = await pool.execute(`SELECT ${parentSafeColumns} FROM Parent_Beneficiary WHERE Admin_Authority = ? ORDER BY Parent_Name`, [req.authority]);
+    res.json(parents);
+  } catch (error) {
+    console.error('Failed to fetch authority parents:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
 });
 
 app.get('/api/authority/children', authenticateAuthority, async (req, res) => {
-    try {
-        const [children] = await pool.execute(`
+  try {
+    const [children] = await pool.execute(
+      `
             SELECT dc.* FROM Dependent_Children dc
             INNER JOIN Parent_Beneficiary pb ON dc.P_No_O_No = pb.P_No_O_No
             WHERE pb.Admin_Authority = ?
             ORDER BY dc.Child_Name
-        `, [req.authority]);
-        res.json(children);
-    } catch (error) {
-        console.error('Failed to fetch authority children:', error);
-        res.status(500).json({ message: 'Server error' });
-    }
+        `,
+      [req.authority]
+    );
+    res.json(children);
+  } catch (error) {
+    console.error('Failed to fetch authority children:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
 });
 
 app.get('/api/authority/grants', authenticateAuthority, async (req, res) => {
-    try {
-        const [grants] = await pool.execute(`
+  try {
+    const [grants] = await pool.execute(
+      `
             SELECT mg.* FROM Monthly_Grants mg
             INNER JOIN Dependent_Children dc ON mg.Child_ID = dc.Child_ID
             INNER JOIN Parent_Beneficiary pb ON dc.P_No_O_No = pb.P_No_O_No
             WHERE pb.Admin_Authority = ?
             ORDER BY mg.Grant_ID DESC
-        `, [req.authority]);
-        res.json(grants);
-    } catch (error) {
-        console.error('Failed to fetch authority grants:', error);
-        res.status(500).json({ message: 'Server error' });
-    }
+        `,
+      [req.authority]
+    );
+    res.json(grants);
+  } catch (error) {
+    console.error('Failed to fetch authority grants:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
 });
 
 app.get('/api/authority/gadgets', authenticateAuthority, async (req, res) => {
-    try {
-        const [gadgets] = await pool.execute(`
+  try {
+    const [gadgets] = await pool.execute(
+      `
             SELECT cg.* FROM Child_Gadgets cg
             INNER JOIN Dependent_Children dc ON cg.Child_ID = dc.Child_ID
             INNER JOIN Parent_Beneficiary pb ON dc.P_No_O_No = pb.P_No_O_No
             WHERE pb.Admin_Authority = ?
             ORDER BY cg.Gadget_ID DESC
-        `, [req.authority]);
-        res.json(gadgets);
-    } catch (error) {
-        console.error('Failed to fetch authority gadgets:', error);
-        res.status(500).json({ message: 'Server error' });
-    }
+        `,
+      [req.authority]
+    );
+    res.json(gadgets);
+  } catch (error) {
+    console.error('Failed to fetch authority gadgets:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
 });
 
 //===============================================================================================================
@@ -1786,11 +1850,7 @@ app.use((error, req, res, next) => {
   res.status(status).json({
     error: {
       code: error?.publicCode || (duplicate ? 'DUPLICATE_VALUE' : 'INTERNAL_ERROR'),
-      message: error?.publicCode
-        ? error.message
-        : duplicate
-          ? 'That username, email, role, or scope name is already in use.'
-          : 'The request could not be completed.',
+      message: error?.publicCode ? error.message : duplicate ? 'That username, email, role, or scope name is already in use.' : 'The request could not be completed.',
       correlationId
     }
   });

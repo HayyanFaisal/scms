@@ -16,7 +16,8 @@ import {
   Inbox,
   UserCog,
   KeyRound,
-  FileCheck2
+  FileCheck2,
+  TableProperties
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -39,6 +40,7 @@ import { ReportsExports } from '@/sections/ReportsExports';
 import { AccessControl } from '@/sections/AccessControl';
 import { SystemConfiguration } from '@/sections/SystemConfiguration';
 import { DocumentReview } from '@/sections/DocumentReview';
+import { ImportWorkspace } from '@/sections/ImportWorkspace';
 import RequestsTab from '@/components/Admin/RequestsTab';
 import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
@@ -61,7 +63,8 @@ type Page =
   | 'settings'
   | 'access-control'
   | 'requests'
-  | 'document-review';
+  | 'document-review'
+  | 'imports';
 
 interface NavigationItem {
   id: Page;
@@ -86,6 +89,7 @@ const navigation: NavigationItem[] = [
   { id: 'reports', label: 'Reports', icon: FileSpreadsheet },
   { id: 'requests', label: 'Requests', icon: Inbox },
   { id: 'document-review', label: 'Documents & Forms', icon: FileCheck2 },
+  { id: 'imports', label: 'Data Imports', icon: TableProperties },
   { id: 'settings', label: 'Configuration', icon: Shield },
   { id: 'access-control', label: 'Access Control', icon: UserCog },
 ];
@@ -115,7 +119,8 @@ function App() {
       grants: 'grants.read',
       reports: 'reports.read',
       requests: 'applications.read',
-      'access-control': 'roles.read'
+      'access-control': 'roles.read',
+      imports: 'imports.create'
     };
     if (page === 'settings') return hasPermission('organizations.read') || hasPermission('rates.read') || hasPermission('settings.read');
     if (page === 'document-review') return hasPermission('documents.read') || hasPermission('forms.read');
@@ -246,6 +251,8 @@ function App() {
         return <RequestsTab />;
       case 'document-review':
         return <DocumentReview />;
+      case 'imports':
+        return <ImportWorkspace />;
       case 'settings':
         return <SystemConfiguration />;
       case 'access-control':

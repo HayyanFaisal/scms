@@ -10,7 +10,7 @@
 
 This is the instruction booklet for the SCMS web application. It explains the intended application behavior in ordinary language and then explains the technical design developers should use to deliver it.
 
-The repository is currently a prototype undergoing its security and configuration migration. Screens and APIs for basic records exist. Migration-backed staff authentication/RBAC, Director-facing account/role management, initial SQL-enforced authority scopes, the Phase 1 configuration registry, provisional identity foundation, parent field policies/account review, and the Phase 2 document/form foundation are implemented. Complete legacy-route scoping, the full staged importer/conflict workspace, remaining document operations, durable notifications, and operational packaging still require implementation. Items marked **Current** exist in some form now. Items marked **Target** describe the required production behavior.
+The repository is currently a prototype undergoing its security and configuration migration. Screens and APIs for basic records exist. Migration-backed staff authentication/RBAC, Director-facing account/role management, initial SQL-enforced authority scopes, the Phase 1 configuration registry, provisional identity foundation, parent field policies/account review, the Phase 2 document/form foundation, and the Phase 3 parent/child staged importer are implemented. Complete legacy-route scoping, remaining document operations, durable notifications, broader import profiles, and operational packaging still require implementation. Items marked **Current** exist in some form now. Items marked **Target** describe the required production behavior.
 
 ## 2. Product overview
 
@@ -351,6 +351,14 @@ The staff Configuration page provides bounded document/form draft editing and im
 
 Current follow-up work within Phase 2: lookup/repeating-group designer controls, school-owned record support, message attachments, retention jobs, malware-scanner adapter hooks, and migration of legacy `Parent_Document_Files` content into the versioned store.
 
+### Current Phase 3 import implementation
+
+Migrations `011_import_platform.js`, `012_import_operations.js`, and `013_import_configuration.js`, `server/import-platform.js`, and `src/sections/ImportWorkspace.tsx` implement the staged import workflow. Source files are kept in protected storage and identified by random keys plus SHA-256 checksums. Jobs, staged rows, mapping definitions, custom heading aliases, dry-run issues, field conflicts, decisions, progress, heartbeats, result state, rollback state, retention state, and logs are persisted separately.
+
+The current API accepts `.xlsx` and UTF-8 `.csv`; selects a sheet and 1-based header row; stages parent, child, or mixed rows; maps arbitrary headings; applies bounded transforms; validates active reference values and parent authority scope; matches parents through normalized CNIC/PN identifiers; detects field differences and child identifier collisions; and executes only eligible rows. New unmatched parents are provisional and incomplete, missing values remain null, child rows require a usable parent identifier, and execution records before/after provenance. Conflict decisions require `imports.resolve`; execution requires `imports.execute`; protected upload/mapping/dry-run access requires `imports.create`.
+
+Execution uses an in-process background runner with durable row outcomes and startup recovery. On API startup, jobs left in `executing` or `rolling_back` are resumed, and completed rows are skipped, making recovery idempotent on a single API instance. Operators can create, update, archive, reactivate, and reuse mapping templates. Reports are downloadable as formula-safe UTF-8 CSV or a streamed native `.xlsx` workbook. Director-only guarded rollback requires a reason and typed job number, works in reverse source order, restores only fields still equal to their import snapshot, and protects records with later edits or linked operational data. Users with `settings.manage` can maintain Unicode heading aliases and a 7-3650 day source-retention policy; startup and daily cleanup remove only eligible final-job source files and preserve results and audit records. Distributed multi-node leasing, `.xls` conversion, bulk conflict decisions, broader profiles, and load testing at the 100,000-row guardrail remain unfinished.
+
 ## 9. Excel/CSV import manual
 
 ### Preparing an import
@@ -361,17 +369,23 @@ The source workbook can have unfamiliar or inconsistent headings. Do not require
 
 1. Open **Imports > New Import**.
 2. Choose the entity/profile: parents, children with parents, or another supported type.
-3. Upload `.xlsx`, `.xls`, or `.csv`.
+3. Upload `.xlsx` or UTF-8 `.csv`. Convert legacy `.xls` first.
 4. Select sheet and header row.
 5. Preview sample rows.
-6. Map each source heading to a system field. Save the mapping as a reusable template when useful.
-7. Add transforms such as date format, trimming, CNIC/PN normalization, authority alias, or fixed default.
+6. Map each source heading to a system field. Save the mapping as a reusable template when useful; existing templates can be updated or archived.
+7. Apply the supported bounded transforms: automatic trimming/identity normalization, uppercase, lowercase, or digits only.
 8. Run **Validate/Dry Run**.
 9. Review totals and row-level errors.
 10. Start the import. The progress screen can be left and reopened.
-11. Review conflicts after valid non-conflicting rows are committed.
-12. Resolve each field with keep existing, use incoming, manual value, skip, or defer.
-13. Download the final result report.
+11. Resolve conflicts before execution with keep existing, use incoming, manual value, skip, or defer where permitted.
+12. Execute again only after deferred or unresolved rows have an explicit safe decision.
+13. Download the final Excel or CSV result report. If a completed job must be reversed, a user with `imports.rollback` supplies a reason and types the job number in the guarded rollback dialog.
+
+### Import configuration
+
+Users with `settings.read` can inspect import configuration. Users with `settings.manage` can add or disable organization-specific heading aliases, including Unicode headings, and every change requires an audit reason. These aliases only improve the initial suggestion; they do not bypass operator review, dry validation, or conflict handling.
+
+The same section controls source-file retention. Choose 7-3650 days and enable or disable automatic cleanup. Cleanup runs at API startup and every 24 hours, and an authorized user can run it immediately. Only original protected uploads belonging to final jobs are removed. Job metadata, staged rows, conflicts, reports, logs, and audit events remain in MySQL. Once a source has been retired, the completed result remains reviewable but the job cannot be restaged from the original file.
 
 ### Example heading mapping
 
@@ -402,11 +416,11 @@ If the row supplies parent CNIC or PN/O No, create one provisional parent and li
 
 - All rows are staged before production writes.
 - Job and row states persist in MySQL.
-- Re-running the same job does not create duplicates.
-- Batch commits are transactional.
+- Restart recovery skips rows already committed, preventing duplicate application within the same job.
+- Each row is committed transactionally; one failed row does not partially apply.
 - Progress and logs come from the server, not a browser timer.
 - Every decision records actor, reason, source, before, and after.
-- Temporary source files follow a configured retention policy.
+- Source files are protected outside the web root. Configurable startup/daily retention cleanup retires only final-job sources and records the outcome while preserving staged/audit history.
 - Rollback is controlled and allowed only where later human changes have not made it unsafe.
 
 ## 10. Authority workspace manual
@@ -490,7 +504,7 @@ Migration `006_parent_account_lifecycle.js` removes the predictable PN-derived p
 
 Migration `007_category_decisions.js` separates `Parent_Selected_Category` from `Approved_Category`. Parent submissions populate only the claimed value; the review flow requires staff to select an approved configured category and records actor, reason, claimed value, and approved value in `scms_child_category_decisions`. The existing `Disability_Category`/`Category` columns are maintained as approved-category compatibility mirrors until the legacy schema is retired.
 
-Migration `008_profile_lifecycle.js` adds normalized PN/CNIC identifiers, explicit identity conflicts, provisional/incomplete record markers, configurable parent-field policies, and versioned parent change requests. The provisional-record API can match or create a parent from PN and/or CNIC, attach a child, and records missing required fields without inventing placeholder demographics. The full spreadsheet staging, mapping, and conflict-resolution screens remain Phase 3 work.
+Migration `008_profile_lifecycle.js` adds normalized PN/CNIC identifiers, explicit identity conflicts, provisional/incomplete record markers, configurable parent-field policies, and versioned parent change requests. The provisional-record API can match or create a parent from PN and/or CNIC, attach a child, and records missing required fields without inventing placeholder demographics. The Phase 3 spreadsheet workspace now builds on this identity foundation with staging, mapping, conflict resolution, execution, reports, and guarded rollback.
 
 Migration `009_review_states.js` expands review states and stores parent-facing responses. Parent profile fields are configured as `direct`, `approval`, or `locked`; required fields contribute to live completeness. Controlled edits enter staff review, while direct edits save transactionally. Staff can approve, request changes, reject further online processing, or block online access when granted the dedicated permission. A Director or delegated role can restore blocked/rejected access with a mandatory audited reason; both blocking and restoring revoke existing parent sessions. Resubmission, blocking, and restoration behavior have API-level live smoke coverage in addition to unit tests.
 

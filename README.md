@@ -262,7 +262,7 @@ Phase 1 account/profile lifecycle is installed by migrations `008_profile_lifecy
 - Controlled parent edits appear in **Requests** with current/proposed values. Authorized staff can approve, request changes, reject, or block online access; non-approval decisions require a parent-facing reason.
 - A returned parent can sign in, correct the profile, and resubmit. A blocked parent cannot use the portal. A Director or role with `applications.block` can restore access from the parent record after entering a mandatory audit reason; restoration revokes older sessions and returns incomplete records to changes-required.
 
-The staged Excel/CSV importer, mapping wizard, and conflict-resolution UI are Phase 3. The Phase 1 provisional-record endpoint is the identity-safe foundation those screens will use.
+The Phase 1 provisional-record endpoint is the identity-safe foundation used by the staged Phase 3 importer described below.
 
 ### Phase 2 documents and digital forms
 
@@ -279,6 +279,22 @@ Migration `010_documents_and_forms.js` installs the first Phase 2 workflow:
 - Parent/staff message threads are record-scoped. The staff review workspace can start conversations, reply, and add visibly distinguished internal notes; internal notes never appear in the parent portal.
 
 The form designer supports multiple sections, common safe field types, choice options, instructions, help text, and text-length validation. Lookup/repeating-group controls, school-owned records, message attachments, retention jobs, malware-scanner adapters, and legacy-file migration remain Phase 2 follow-up work.
+
+### Phase 3 staged data imports
+
+Migrations `011_import_platform.js`, `012_import_operations.js`, and `013_import_configuration.js` install durable import jobs, staged rows, field-level conflicts, reusable mapping templates, configurable heading aliases, source-retention settings, job logs, restart metadata, and guarded rollback outcomes. Open **Data Imports** in the staff sidebar when the account has `imports.create`.
+
+- Accepted source formats are `.xlsx` and UTF-8 `.csv`, up to 20 MB, 100,000 rows, and 250 columns per sheet. Legacy binary `.xls` is deliberately rejected with instructions to save as `.xlsx` or `.csv`; PDF is not a tabular import format.
+- The original source is checksummed and stored under `SCMS_IMPORT_STORAGE_DIR` (or ignored `.scms-data/imports`) outside the web root. A configurable 7-3650 day policy can retire source files after finalization while preserving staged results, logs, reports, and audit history.
+- The operator selects the worksheet, header row, and parent/child/mixed profile, then maps arbitrary headings to canonical SCMS fields. Built-in and Director-configured multilingual aliases receive suggestions, but mappings remain explicit and reviewable.
+- Dry validation does not change operational records. It checks PN/CNIC normalization, child identifiers, configured reference values, role scope, likely creates/updates, field differences, and hard identity collisions.
+- Authorized users resolve each conflict by keeping the existing value, using the incoming value, entering a manual value, skipping, or deferring where the conflict type safely permits it. Identity collisions are never silently merged.
+- `imports.execute` starts execution of eligible rows. Progress, heartbeat, row outcome, before/after data, and logs are stored server-side and survive a browser refresh.
+- Interrupted execution and rollback workers are discovered from MySQL and resumed when the API starts. Already executed or reversed rows are not applied twice.
+- Operators can create, update, archive, reactivate, and reuse mappings. Outcome reports containing every row result, issue, target record, and rollback result are available as UTF-8 CSV and genuine `.xlsx` workbooks.
+- `imports.rollback` exposes a Director-only guarded rollback. It requires a reason and typed job number, processes rows in reverse order, and refuses to overwrite records edited later or delete records that gained linked operational data.
+
+Current Phase 3 limitations: legacy `.xls`, distributed multi-node worker leasing, more import profiles, bulk conflict decisions, and high-volume performance certification remain follow-up work. The current CSV and Excel result exports are genuine files of the advertised type.
 
 Open separate terminals to run both portals simultaneously:
 
