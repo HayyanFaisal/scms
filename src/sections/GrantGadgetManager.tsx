@@ -37,6 +37,9 @@ import { useGrants, useGadgets, useChildren, useParents, useExpiringGrants } fro
 import { useAuth } from '@/hooks/useAuth';
 import { useReferenceData } from '@/hooks/useReferenceData';
 import { configuration, type CategoryRate } from '@/services/configuration';
+import { apiFetch, readApiError } from '@/services/http';
+import { db } from '@/services/database';
+import { toast } from 'sonner';
 import { formatChildDisplayName } from '@/lib/utils';
 import { formatCurrency, formatDate } from '@/lib/validation';
 import type { MonthlyGrants, ChildGadgets, DisabilityCategory, AcquisitionType } from '@/types';
@@ -113,7 +116,7 @@ export function GrantGadgetManager({ onNavigate: _onNavigate }: GrantGadgetManag
 }
 
 function GrantsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; canUpdate: boolean; canDelete: boolean }) {
-  const { grants, create, update, remove } = useGrants();
+  const { grants } = useGrants();
   const { children } = useChildren();
   const { parents } = useParents();
   const { grants: expiringGrants } = useExpiringGrants(30);
@@ -124,11 +127,11 @@ function GrantsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; c
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingGrant, setEditingGrant] = useState<MonthlyGrants | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<MonthlyGrants | null>(null);
+  const [saving, setSaving] = useState(false);
   const [renderTime] = useState(() => Date.now());
 
   const [formData, setFormData] = useState({
     Child_ID: '',
-    Monthly_Amount: '',
     Approved_From: '',
     Approved_To: ''
   });
@@ -138,14 +141,16 @@ function GrantsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; c
   }, []);
 
   const selectChild = (childId: string) => {
-    if (editingGrant) {
-      setFormData(current => ({ ...current, Child_ID: childId }));
-      return;
-    }
-    const category = children.find(child => child.Child_ID === Number(childId))?.Disability_Category;
-    const suggestedRate = rates.find(rate => rate.isCurrent && rate.categoryName === category);
-    setFormData(current => ({ ...current, Child_ID: childId, Monthly_Amount: suggestedRate ? String(suggestedRate.monthlyAmount) : current.Monthly_Amount }));
+    setFormData(current => ({ ...current, Child_ID: childId }));
   };
+
+  const selectedChild = children.find(child => child.Child_ID === Number(formData.Child_ID));
+  const rateDate = formData.Approved_From || new Date().toISOString().slice(0, 10);
+  const selectedRate = rates
+    .filter(rate => rate.categoryName === selectedChild?.Approved_Category)
+    .filter(rate => rate.effectiveFrom.slice(0, 10) <= rateDate
+      && (!rate.effectiveTo || rate.effectiveTo.slice(0, 10) >= rateDate))
+    .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))[0];
 
   const filteredGrants = grants.filter(grant => {
     const child = children.find(c => c.Child_ID === grant.Child_ID);
@@ -156,40 +161,61 @@ function GrantsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; c
     return matchesSearch && matchesCategory;
   });
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const data = {
       Child_ID: parseInt(formData.Child_ID),
-      Monthly_Amount: parseFloat(formData.Monthly_Amount),
-      Total_CFY_Amount: parseFloat(formData.Monthly_Amount) * 12,
+      // Display-only values keep the optimistic local cache consistent. The API
+      // deliberately ignores them and derives both amounts from the approved
+      // category's effective-dated schedule inside the database transaction.
+      Monthly_Amount: selectedRate?.monthlyAmount || 0,
+      Total_CFY_Amount: selectedRate?.monthlyAmount || 0,
       Approved_From: formData.Approved_From,
       Approved_To: formData.Approved_To
     };
 
-    if (editingGrant) {
-      update(editingGrant.Grant_ID, data);
-    } else {
-      create(data);
+    setSaving(true);
+    try {
+      const response = await apiFetch(editingGrant ? `/grants/${editingGrant.Grant_ID}` : '/grants', {
+        method: editingGrant ? 'PUT' : 'POST',
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) throw new Error(await readApiError(response, 'Unable to save the grant.'));
+      await db.refreshFromServer();
+      toast.success(editingGrant ? 'Grant updated using the published category rate.' : 'Grant created using the published category rate.');
+      setIsDialogOpen(false);
+      setEditingGrant(null);
+      setFormData({ Child_ID: '', Approved_From: '', Approved_To: '' });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to save the grant.');
+    } finally {
+      setSaving(false);
     }
-    setIsDialogOpen(false);
-    setEditingGrant(null);
-    setFormData({ Child_ID: '', Monthly_Amount: '', Approved_From: '', Approved_To: '' });
   };
 
   const handleEdit = (grant: MonthlyGrants) => {
     setEditingGrant(grant);
     setFormData({
       Child_ID: grant.Child_ID.toString(),
-      Monthly_Amount: grant.Monthly_Amount.toString(),
-      Approved_From: grant.Approved_From,
-      Approved_To: grant.Approved_To
+      Approved_From: String(grant.Approved_From).slice(0, 10),
+      Approved_To: String(grant.Approved_To).slice(0, 10)
     });
     setIsDialogOpen(true);
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (deleteConfirm) {
-      remove(deleteConfirm.Grant_ID);
-      setDeleteConfirm(null);
+      setSaving(true);
+      try {
+        const response = await apiFetch(`/grants/${deleteConfirm.Grant_ID}`, { method: 'DELETE' });
+        if (!response.ok) throw new Error(await readApiError(response, 'Unable to delete the grant.'));
+        await db.refreshFromServer();
+        setDeleteConfirm(null);
+        toast.success('Grant cancelled; its financial history was retained.');
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Unable to delete the grant.');
+      } finally {
+        setSaving(false);
+      }
     }
   };
 
@@ -239,7 +265,7 @@ function GrantsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; c
             {canCreate && (
               <Button onClick={() => {
                 setEditingGrant(null);
-                setFormData({ Child_ID: '', Monthly_Amount: '', Approved_From: '', Approved_To: '' });
+                setFormData({ Child_ID: '', Approved_From: '', Approved_To: '' });
                 setIsDialogOpen(true);
               }}>
                 <Plus className="w-4 h-4 mr-2" />
@@ -313,14 +339,16 @@ function GrantsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; c
                         </TableCell>
                         <TableCell>
                           <Badge className={categoryColors[child?.Disability_Category || ''] || 'bg-slate-100 text-slate-800 border-slate-200'}>
-                            {child?.Disability_Category}
+                            {grant.Category || child?.Disability_Category}
                           </Badge>
                         </TableCell>
                         <TableCell className="font-mono">{formatCurrency(grant.Monthly_Amount)}</TableCell>
                         <TableCell>{formatDate(grant.Approved_From)}</TableCell>
                         <TableCell>{formatDate(grant.Approved_To)}</TableCell>
                         <TableCell>
-                          {isExpired ? (
+                          {grant.Status === 'cancelled' ? (
+                            <Badge variant="secondary">Cancelled</Badge>
+                          ) : isExpired ? (
                             <Badge variant="destructive">Expired</Badge>
                           ) : isExpiring ? (
                             <Badge className="bg-amber-100 text-amber-800">Expiring Soon</Badge>
@@ -369,21 +397,31 @@ function GrantsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; c
                 <SelectContent>
                   {children.map(child => (
                     <SelectItem key={child.Child_ID} value={child.Child_ID.toString()}>
-                      {formatChildDisplayName(child.Child_Name, parents.find(p => p.P_No_O_No === child.P_No_O_No)?.Parent_Name, child.P_No_O_No)} (Cat {child.Disability_Category})
+                      {formatChildDisplayName(child.Child_Name, parents.find(p => p.P_No_O_No === child.P_No_O_No)?.Parent_Name, child.P_No_O_No)} ({child.Approved_Category ? `Cat ${child.Approved_Category}` : 'category not approved'})
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-            <div>
-              <Label>Monthly Amount (PKR)</Label>
-              <Input
-                type="number"
-                value={formData.Monthly_Amount}
-                onChange={(e) => setFormData({ ...formData, Monthly_Amount: e.target.value })}
-                placeholder="Enter amount"
-              />
-              {!editingGrant && formData.Child_ID && <p className="mt-1 text-xs text-slate-500">Prefilled from the current category schedule. You can override it for this grant.</p>}
+            <div className="rounded-lg border bg-slate-50 p-3 dark:bg-slate-900/40">
+              <Label>Category-controlled monthly rate</Label>
+              {!selectedChild ? (
+                <p className="mt-1 text-sm text-slate-500">Select a child to see the approved category and rate.</p>
+              ) : selectedRate ? (
+                <div className="mt-2 flex items-center justify-between gap-4">
+                  <Badge className={categoryColors[selectedChild.Approved_Category || ''] || ''}>
+                    Category {selectedChild.Approved_Category}
+                  </Badge>
+                  <span className="font-mono font-semibold">{formatCurrency(selectedRate.monthlyAmount)} / month</span>
+                </div>
+              ) : (
+                <p className="mt-1 text-sm text-red-600">
+                  No published rate covers this category on the selected start date.
+                </p>
+              )}
+              <p className="mt-2 text-xs text-slate-500">
+                The server locks in the effective rate. Staff cannot type or override a grant amount here.
+              </p>
             </div>
             <div>
               <Label>Approved From</Label>
@@ -404,7 +442,12 @@ function GrantsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; c
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSubmit}>{editingGrant ? 'Update' : 'Create'}</Button>
+            <Button
+              disabled={saving || !formData.Child_ID || !formData.Approved_From || !formData.Approved_To || !selectedRate}
+              onClick={() => void handleSubmit()}
+            >
+              {editingGrant ? 'Update' : 'Create'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -413,14 +456,14 @@ function GrantsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; c
       <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Confirm Delete</DialogTitle>
+            <DialogTitle>Cancel grant</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete this grant? This action cannot be undone.
+              This stops the grant without deleting its financial history. The record remains available to reports and audit.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete}>Delete</Button>
+            <Button variant="destructive" disabled={saving} onClick={() => void handleDelete()}>Cancel grant</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -447,8 +490,8 @@ function GadgetsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; 
   const filteredGadgets = gadgets.filter(gadget => {
     const child = children.find(c => c.Child_ID === gadget.Child_ID);
     return (
-      !!child?.Child_Name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      gadget.Detail_of_Gadgets.toLowerCase().includes(searchQuery.toLowerCase())
+      String(child?.Child_Name ?? '').toLocaleLowerCase().includes(searchQuery.toLocaleLowerCase()) ||
+      String(gadget.Detail_of_Gadgets ?? '').toLocaleLowerCase().includes(searchQuery.toLocaleLowerCase())
     );
   });
 
@@ -705,12 +748,18 @@ function GadgetsList({ canCreate, canUpdate, canDelete }: { canCreate: boolean; 
 }
 
 function CalculatorPanel() {
-  const [monthlyAmount, setMonthlyAmount] = useState('');
+  const [rates, setRates] = useState<CategoryRate[]>([]);
+  const [category, setCategory] = useState('A');
   const [baseCost, setBaseCost] = useState('');
   const [quarters, setQuarters] = useState(1);
 
-  const quarterlyAmount = parseFloat(monthlyAmount || '0') * 3;
-  const annualAmount = parseFloat(monthlyAmount || '0') * 12;
+  useEffect(() => {
+    configuration.loadRates().then(setRates).catch(() => setRates([]));
+  }, []);
+  const currentRate = rates.find(rate => rate.isCurrent && rate.categoryName === category);
+  const monthlyAmount = currentRate?.monthlyAmount || 0;
+  const quarterlyAmount = monthlyAmount * 3;
+  const annualAmount = monthlyAmount * 12;
   const taxAmount = parseFloat(baseCost || '0') * 0.18;
   const totalGadgetCost = parseFloat(baseCost || '0') * 1.18;
   const multiQuarterAmount = quarterlyAmount * quarters;
@@ -723,17 +772,22 @@ function CalculatorPanel() {
             <TrendingUp className="w-5 h-5" />
             Grant Calculator
           </CardTitle>
-          <CardDescription>Calculate quarterly and annual grant amounts</CardDescription>
+          <CardDescription>Preview totals from the published category schedule</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <Label>Monthly Amount (PKR)</Label>
-            <Input
-              type="number"
-              value={monthlyAmount}
-              onChange={(e) => setMonthlyAmount(e.target.value)}
-              placeholder="Enter monthly amount"
-            />
+            <Label>Approved category</Label>
+            <Select value={category} onValueChange={setCategory}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {[...new Set(rates.filter(rate => rate.isCurrent).map(rate => rate.categoryName))].map(name => (
+                  <SelectItem key={name} value={name}>Category {name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Published monthly rate: {currentRate ? formatCurrency(currentRate.monthlyAmount) : 'No current rate'}
+            </p>
           </div>
           <div>
             <Label>Number of Quarters</Label>

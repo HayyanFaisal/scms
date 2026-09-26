@@ -10,6 +10,7 @@
     "start": "node server/index.js",
     "bootstrap:director": "node scripts/bootstrap-director.mjs",
     "generate:test-import": "node scripts/generate-import-test-workbook.mjs",
+    "reset:demo-data": "node scripts/reset-meaningful-demo-data.mjs --execute",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "node --test server/**/*.test.js",

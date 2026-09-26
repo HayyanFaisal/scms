@@ -212,6 +212,72 @@ async function getGrantRecord(grantId) {
   return rows[0] || null;
 }
 
+function grantValidationError(message, code = 'INVALID_GRANT') {
+  const error = new Error(message);
+  error.status = 400;
+  error.publicCode = code;
+  return error;
+}
+
+function inclusiveGrantMonths(from, to) {
+  const start = new Date(`${from}T00:00:00Z`);
+  const end = new Date(`${to}T00:00:00Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+    throw grantValidationError('Approved To must be on or after Approved From.');
+  }
+  return (end.getUTCFullYear() - start.getUTCFullYear()) * 12
+    + end.getUTCMonth() - start.getUTCMonth() + 1;
+}
+
+async function resolveGrantTerms(connection, childId, approvedFrom, approvedTo, excludeGrantId = null) {
+  const months = inclusiveGrantMonths(approvedFrom, approvedTo);
+  const [children] = await connection.query(
+    `SELECT dc.Child_ID, dc.Approved_Category AS approved_category
+     FROM Dependent_Children dc WHERE dc.Child_ID = ? FOR UPDATE`,
+    [childId],
+  );
+  const child = children[0];
+  if (!child) throw grantValidationError('The selected child does not exist.', 'CHILD_NOT_FOUND');
+  if (!child.approved_category) {
+    throw grantValidationError('Approve the child category before creating a grant.', 'CATEGORY_NOT_APPROVED');
+  }
+
+  const [rates] = await connection.query(
+    `SELECT r.id, r.monthly_amount, r.effective_from, category.name AS category_name
+     FROM scms_category_rate_schedules r
+     INNER JOIN scms_reference_items category ON category.id = r.category_item_id
+     WHERE category.item_type = 'category' AND category.name = ?
+       AND r.effective_from <= ?
+       AND (r.effective_to IS NULL OR r.effective_to >= ?)
+     ORDER BY r.effective_from DESC LIMIT 1`,
+    [child.approved_category, approvedFrom, approvedFrom],
+  );
+  if (!rates[0]) {
+    throw grantValidationError(`No published rate covers ${child.approved_category} on ${approvedFrom}.`, 'RATE_NOT_FOUND');
+  }
+
+  const overlapParams = [childId, approvedTo, approvedFrom];
+  let overlapSql = `SELECT Grant_ID FROM Monthly_Grants
+    WHERE Child_ID = ? AND Status <> 'cancelled' AND Approved_From <= ? AND Approved_To >= ?`;
+  if (excludeGrantId) {
+    overlapSql += ' AND Grant_ID <> ?';
+    overlapParams.push(excludeGrantId);
+  }
+  overlapSql += ' FOR UPDATE';
+  const [overlaps] = await connection.query(overlapSql, overlapParams);
+  if (overlaps.length > 0) {
+    throw grantValidationError('This child already has a grant covering part of that period.', 'GRANT_PERIOD_OVERLAP');
+  }
+  const monthlyAmount = Number(rates[0].monthly_amount);
+  return {
+    category: rates[0].category_name,
+    rateScheduleId: Number(rates[0].id),
+    rateEffectiveFrom: rates[0].effective_from,
+    monthlyAmount,
+    totalAmount: monthlyAmount * months,
+  };
+}
+
 async function getGadgetRecord(gadgetId) {
   const rows = await query('SELECT * FROM Child_Gadgets WHERE Gadget_ID = ?', [gadgetId]);
   return rows[0] || null;
@@ -829,14 +895,24 @@ app.get('/api/grants', async (req, res) => {
 
 app.post('/api/grants', async (req, res) => {
   try {
-    const { Child_ID, Monthly_Amount, Total_CFY_Amount, Approved_From, Approved_To } = req.body;
-    const result = await query(
-      `INSERT INTO Monthly_Grants
-        (Child_ID, Monthly_Amount, Total_CFY_Amount, Approved_From, Approved_To)
-       VALUES (?, ?, ?, ?, ?)`,
-      [Child_ID, Monthly_Amount, Total_CFY_Amount, Approved_From, Approved_To]
-    );
-    res.status(201).json(await getGrantRecord(result.insertId));
+    const { Child_ID, Approved_From, Approved_To } = req.body;
+    if (!Number.isInteger(Number(Child_ID)) || !Approved_From || !Approved_To) {
+      throw grantValidationError('Child, Approved From, and Approved To are required.');
+    }
+    const grantId = await transaction(async (connection) => {
+      const terms = await resolveGrantTerms(connection, Number(Child_ID), Approved_From, Approved_To);
+      const [result] = await connection.query(
+        `INSERT INTO Monthly_Grants
+          (Child_ID, Category, Monthly_Amount, Monthly_Amount_Rs, Total_CFY_Amount,
+           Approved_From, Approved_To, Rate_Schedule_ID, Rate_Effective_From, Created_By)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [Child_ID, terms.category, terms.monthlyAmount, terms.monthlyAmount,
+          terms.totalAmount, Approved_From, Approved_To, terms.rateScheduleId,
+          terms.rateEffectiveFrom, req.staff.id],
+      );
+      return result.insertId;
+    });
+    res.status(201).json(await getGrantRecord(grantId));
   } catch (error) {
     sendError(res, error);
   }
@@ -845,13 +921,21 @@ app.post('/api/grants', async (req, res) => {
 app.put('/api/grants/:grantId', async (req, res) => {
   try {
     const grantId = Number(req.params.grantId);
-    const { Child_ID, Monthly_Amount, Total_CFY_Amount, Approved_From, Approved_To } = req.body;
-    await query(
-      `UPDATE Monthly_Grants
-       SET Child_ID = ?, Monthly_Amount = ?, Total_CFY_Amount = ?, Approved_From = ?, Approved_To = ?
-       WHERE Grant_ID = ?`,
-      [Child_ID, Monthly_Amount, Total_CFY_Amount, Approved_From, Approved_To, grantId]
-    );
+    const { Child_ID, Approved_From, Approved_To } = req.body;
+    await transaction(async (connection) => {
+      const [existingRows] = await connection.query('SELECT Grant_ID FROM Monthly_Grants WHERE Grant_ID = ? FOR UPDATE', [grantId]);
+      if (!existingRows[0]) throw grantValidationError('Grant not found.', 'GRANT_NOT_FOUND');
+      const terms = await resolveGrantTerms(connection, Number(Child_ID), Approved_From, Approved_To, grantId);
+      await connection.query(
+        `UPDATE Monthly_Grants SET Child_ID = ?, Category = ?, Monthly_Amount = ?,
+         Monthly_Amount_Rs = ?, Total_CFY_Amount = ?, Approved_From = ?, Approved_To = ?,
+         Rate_Schedule_ID = ?, Rate_Effective_From = ?, Row_Version = Row_Version + 1
+         WHERE Grant_ID = ?`,
+        [Child_ID, terms.category, terms.monthlyAmount, terms.monthlyAmount,
+          terms.totalAmount, Approved_From, Approved_To, terms.rateScheduleId,
+          terms.rateEffectiveFrom, grantId],
+      );
+    });
     res.json(await getGrantRecord(grantId));
   } catch (error) {
     sendError(res, error);
@@ -860,7 +944,11 @@ app.put('/api/grants/:grantId', async (req, res) => {
 
 app.delete('/api/grants/:grantId', async (req, res) => {
   try {
-    await query('DELETE FROM Monthly_Grants WHERE Grant_ID = ?', [Number(req.params.grantId)]);
+    await query(
+      `UPDATE Monthly_Grants SET Status = 'cancelled', Row_Version = Row_Version + 1
+       WHERE Grant_ID = ?`,
+      [Number(req.params.grantId)],
+    );
     res.status(204).send();
   } catch (error) {
     sendError(res, error);

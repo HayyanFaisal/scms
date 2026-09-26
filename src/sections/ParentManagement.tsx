@@ -67,11 +67,17 @@ export function ParentManagement({ onNavigate }: ParentManagementProps) {
   const [statusFilter, setStatusFilter] = useState<ServiceStatus | 'all'>('all');
   const [deleteConfirm, setDeleteConfirm] = useState<ParentBeneficiary | null>(null);
 
+  const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
   const filteredParents = parents.filter(parent => {
-    const matchesSearch = 
-      parent.P_No_O_No.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      parent.Parent_Name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      parent.Unit.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = !normalizedSearch || [
+      parent.P_No_O_No,
+      parent.Parent_Name,
+      parent.Parent_CNIC,
+      parent.Rank_Rate,
+      parent.Unit,
+      parent.Admin_Authority,
+      parent.Contact_No,
+    ].some(value => String(value ?? '').toLocaleLowerCase().includes(normalizedSearch));
     
     const matchesStatus = statusFilter === 'all' || parent.Service_Status === statusFilter;
     

@@ -74,6 +74,8 @@ export interface DependentChildren {
   CNIC_BForm_No: string;
   Disease_Disability: string;
   Disability_Category: DisabilityCategory;
+  Parent_Selected_Category?: DisabilityCategory;
+  Approved_Category?: DisabilityCategory;
   Disability_Certificate_No?: string;
   School: string;
   Authority?: string;
@@ -84,10 +86,15 @@ export interface DependentChildren {
 export interface MonthlyGrants {
   Grant_ID: number;
   Child_ID: number;
+  Category?: DisabilityCategory;
   Monthly_Amount: number;
   Total_CFY_Amount: number;
   Approved_From: string;
   Approved_To: string;
+  Rate_Schedule_ID?: number;
+  Rate_Effective_From?: string;
+  Status?: string;
+  Row_Version?: number;
 }
 
 // Gadgets

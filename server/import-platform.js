@@ -40,90 +40,105 @@ export const IMPORT_FIELDS = Object.freeze([
     code: "parent.pNoONo",
     label: "Parent PN/O number",
     group: "Parent",
+    databaseTarget: "Parent_Beneficiary.P_No_O_No",
     aliases: ["pn", "pno", "pnumber", "personnelnumber", "servicenumber"],
   },
   {
     code: "parent.cnic",
     label: "Parent CNIC",
     group: "Parent",
+    databaseTarget: "Parent_Beneficiary.Parent_CNIC",
     aliases: ["cnic", "parentcnic", "nationalidentitynumber"],
   },
   {
     code: "parent.name",
     label: "Parent name",
     group: "Parent",
+    databaseTarget: "Parent_Beneficiary.Parent_Name",
     aliases: ["parentname", "guardianname", "beneficiaryname", "name"],
   },
   {
     code: "parent.rankRate",
     label: "Rank / rate",
     group: "Parent",
+    databaseTarget: "Parent_Beneficiary.Rank_Rate",
     aliases: ["rank", "rate", "rankrate"],
   },
   {
     code: "parent.unit",
     label: "Unit",
     group: "Parent",
+    databaseTarget: "Parent_Beneficiary.Unit",
     aliases: ["unit", "ship", "formation"],
   },
   {
     code: "parent.authority",
     label: "Administrative authority",
     group: "Parent",
+    databaseTarget: "Parent_Beneficiary.Admin_Authority",
     aliases: ["authority", "adminauthority", "command"],
   },
   {
     code: "parent.serviceStatus",
     label: "Service status",
     group: "Parent",
+    databaseTarget: "Parent_Beneficiary.Service_Status",
     aliases: ["servicestatus", "status"],
   },
   {
     code: "parent.address",
     label: "Address",
     group: "Parent",
+    databaseTarget: "Parent_Beneficiary.Address",
     aliases: ["address", "residentialaddress", "homeaddress"],
   },
   {
     code: "parent.email",
     label: "Email",
     group: "Parent",
+    databaseTarget: "Parent_Beneficiary.Email",
     aliases: ["email", "emailaddress"],
   },
   {
     code: "parent.contactNo",
     label: "Contact number",
     group: "Parent",
+    databaseTarget: "Parent_Beneficiary.Contact_No",
     aliases: ["contact", "contactno", "phone", "mobile"],
   },
   {
     code: "child.name",
     label: "Child name",
     group: "Child",
+    databaseTarget: "Dependent_Children.Child_Name",
     aliases: ["childname", "studentname", "dependentname"],
   },
   {
     code: "child.age",
     label: "Child age",
     group: "Child",
+    databaseTarget: "Dependent_Children.Age",
     aliases: ["childage", "age"],
   },
   {
     code: "child.cnicBformNo",
     label: "Child CNIC / B-Form",
     group: "Child",
+    databaseTarget: "Dependent_Children.CNIC_BForm_No",
     aliases: ["bform", "bformno", "childcnic", "studentcnic"],
   },
   {
     code: "child.school",
     label: "School",
     group: "Child",
+    databaseTarget: "Dependent_Children.School",
     aliases: ["school", "schoolname", "institute"],
   },
   {
     code: "child.category",
     label: "Parent-selected category",
     group: "Child",
+    databaseTarget: "Dependent_Children.Parent_Selected_Category",
     aliases: ["category", "disabilitycategory", "supportcategory"],
   },
 ]);
@@ -843,10 +858,28 @@ async function classifyChildConflict(connection, mapped, match, rowId, jobId) {
       incoming: { identifier, matchedParent: match.parentPNo || null },
     });
   } else {
+    const [[financialLinks]] = await connection.query(
+      `SELECT COUNT(*) AS grant_count,
+              MIN(Approved_From) AS first_grant_from,
+              MAX(Approved_To) AS last_grant_to
+       FROM Monthly_Grants WHERE Child_ID = ?`,
+      [child.Child_ID],
+    );
     conflicts.push({
-      type: "child_already_exists",
+      type: Number(financialLinks.grant_count || 0) > 0
+        ? "financial_dependency"
+        : "child_already_exists",
       field: "child.cnicBformNo",
-      existing: { childId: child.Child_ID, name: child.Child_Name },
+      existing: {
+        childId: child.Child_ID,
+        name: child.Child_Name,
+        grantCount: Number(financialLinks.grant_count || 0),
+        firstGrantFrom: financialLinks.first_grant_from || null,
+        lastGrantTo: financialLinks.last_grant_to || null,
+        protection: Number(financialLinks.grant_count || 0) > 0
+          ? "The existing child and captured grant rate will not be overwritten by a demographic import."
+          : undefined,
+      },
       incoming: { identifier, name: mapped["child.name"] },
     });
   }
@@ -912,7 +945,7 @@ async function resolvedConflictPlan(connection, rowId) {
       plan.overwrite.set(conflict.field_code, resolvedValue);
     }
     if (
-      conflict.conflict_type === "child_already_exists" &&
+      ["child_already_exists", "financial_dependency"].includes(conflict.conflict_type) &&
       conflict.resolution === "keep_existing"
     )
       plan.skip = true;
@@ -2358,7 +2391,7 @@ export function registerImportPlatformRoutes(app, pool, transaction) {
               ? "skipped"
               : "resolved";
         if (
-          ["child_identity_collision", "child_already_exists"].includes(
+          ["child_identity_collision", "child_already_exists", "financial_dependency"].includes(
             conflict.conflict_type,
           ) &&
           !["keep_existing", "skip_row", "defer"].includes(resolution)
@@ -2403,7 +2436,7 @@ export function registerImportPlatformRoutes(app, pool, transaction) {
           }
         }
         if (
-          ["child_identity_collision", "child_already_exists"].includes(
+          ["child_identity_collision", "child_already_exists", "financial_dependency"].includes(
             conflict.conflict_type,
           ) &&
           resolution === "keep_existing"

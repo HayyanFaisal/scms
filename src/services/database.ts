@@ -84,7 +84,9 @@ function normalizeChild(row: any): DependentChildren {
     Age: toNumber(row.Age),
     CNIC_BForm_No: row.CNIC_BForm_No,
     Disease_Disability: row.Disease_Disability,
-    Disability_Category: (row.Disability_Category || row.Category || 'A') as any,
+    Disability_Category: (row.Approved_Category || row.Disability_Category || row.Category || '') as any,
+    Parent_Selected_Category: row.Parent_Selected_Category || undefined,
+    Approved_Category: row.Approved_Category || undefined,
     Disability_Certificate_No: row.Disability_Certificate_No,
     School: row.School,
     Authority: row.Authority,
@@ -99,10 +101,15 @@ function normalizeGrant(row: any): MonthlyGrants {
   return {
     Grant_ID: toNumber(row.Grant_ID),
     Child_ID: toNumber(row.Child_ID),
+    Category: row.Category || undefined,
     Monthly_Amount: monthlyAmount,
     Total_CFY_Amount: totalCFYAmount,
     Approved_From: row.Approved_From,
-    Approved_To: row.Approved_To
+    Approved_To: row.Approved_To,
+    Rate_Schedule_ID: row.Rate_Schedule_ID ? toNumber(row.Rate_Schedule_ID) : undefined,
+    Rate_Effective_From: row.Rate_Effective_From || undefined,
+    Status: row.Status || undefined,
+    Row_Version: row.Row_Version ? toNumber(row.Row_Version) : undefined,
   };
 }
 
@@ -525,7 +532,7 @@ class DatabaseService {
     
     return this.getAllGrants().filter(grant => {
       const approvedTo = new Date(grant.Approved_To);
-      return approvedTo <= futureDate && approvedTo >= today;
+      return grant.Status !== 'cancelled' && approvedTo <= futureDate && approvedTo >= today;
     });
   }
 

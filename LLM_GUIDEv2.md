@@ -613,12 +613,18 @@ Current implementation status (2026-09-26): migrations `011_import_platform.js`,
 
 Current audit status (2026-09-26): `server/audit-log.js` and `src/sections/AuditLog.tsx` expose the immutable MySQL `scms_audit_events` feed through a dedicated `audit.read` sidebar page. It supports server-side text/date/action/entity/outcome filters, pagination, structured-detail viewing, and an `audit.export`-protected formula-safe CSV whose export action is also audited. The previous browser-local audit tab has been replaced by this server view. Authority-aware audit filtering and separately permissioned sensitive detail payloads remain hardening work.
 
+Current Phase 4 foundation (2026-09-26): migration `014_grant_integrity.js` makes grants category-driven financial snapshots. The API ignores client-supplied amounts, locks the child inside a transaction, requires an approved category, selects the effective-dated published rate for the grant start date, stores the category/rate-schedule snapshot, calculates the period total, and rejects overlapping grant periods. Cancelling a grant retains its financial record. Parent/child imports never modify grants; when an existing child has any grant history, dry validation emits a `financial_dependency` conflict and the only safe execution outcome is to retain the protected child and skip/defer the row. `test-data/SCMS_Active_Grant_Import_Edge_Cases.xlsx` exercises this behavior against the coherent demo dataset.
+
+The staff reporting screen now provides scope-aware beneficiary, child, grant, summary, and real audit views. Users with `reports.export_sensitive` receive formula-safe CSV and genuine `.xlsx` downloads; the former CSV-disguised-as-Excel behavior is removed. Beneficiary search is null-safe across PN/O, name, CNIC, rank, unit, authority, and contact fields. Gadget persistence remains functional but the richer request/approval/procurement lifecycle described for Phase 4 is not complete.
+
 ### Phase 4 - program operations
 
 1. Banking evidence workflow.
 2. Grant/payment batches, exports, confirmations, duplicate prevention, and budgets.
 3. School claims/fees and gadget workflows according to confirmed stakeholder priority.
 4. Reports and role/scope-aware exports.
+
+Operational demo data can be rebuilt with `npm run reset:demo-data`. The script refuses to run without its explicit `--execute` entry point, applies migrations, saves a complete JSON backup under `.scms-data/backups/`, preserves schema/RBAC/staff users, clears operational and inconsistent registry rows, then loads a coherent multi-authority dataset. Demo parent accounts use password `ParentDemo2026!`; this credential is for local testing only and must never be used in deployment.
 
 ### Phase 5 - production operations
 

@@ -62,6 +62,8 @@ interface ImportField {
   code: string;
   label: string;
   group: "Parent" | "Child";
+  aliases: string[];
+  databaseTarget: string;
 }
 interface ImportCatalog {
   profiles: Array<{ code: string; label: string }>;
@@ -946,6 +948,55 @@ export function ImportWorkspace() {
             </div>
           </CardHeader>
           <CardContent className="space-y-5">
+            <div className="space-y-4 rounded-xl border p-4">
+              <div>
+                <h3 className="font-semibold">Built-in automatic heading map</h3>
+                <p className="text-sm text-muted-foreground">
+                  These rules ship with SCMS. If an uploaded heading matches one
+                  of the examples below (capitalization, spaces, punctuation,
+                  and underscores are ignored), SCMS suggests the database field
+                  shown. The operator can review and change every suggestion
+                  before validation or import.
+                </p>
+              </div>
+              <div className="max-h-80 overflow-auto rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Spreadsheet headings recognized</TableHead>
+                      <TableHead>Maps to</TableHead>
+                      <TableHead>Database target</TableHead>
+                      <TableHead>Internal field code</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(catalog?.fields || []).map((field) => (
+                      <TableRow key={field.code}>
+                        <TableCell className="max-w-lg">
+                          <div className="flex flex-wrap gap-1">
+                            {field.aliases.map((alias) => (
+                              <Badge key={alias} variant="outline">{alias}</Badge>
+                            ))}
+                          </div>
+                        </TableCell>
+                        <TableCell>{field.group} · {field.label}</TableCell>
+                        <TableCell className="font-mono text-xs">
+                          {field.databaseTarget}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {field.code}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Organization-specific aliases below extend these defaults; they
+                do not replace them.
+              </p>
+            </div>
+
             <div className="grid gap-5 xl:grid-cols-2">
               <div className="space-y-4 rounded-xl border p-4">
                 <div>
@@ -1074,16 +1125,19 @@ export function ImportWorkspace() {
 
               <div className="space-y-4 rounded-xl border p-4">
                 <div>
-                  <h3 className="font-semibold">Protected source retention</h3>
+                  <h3 className="font-semibold">Original upload retention</h3>
                   <p className="text-sm text-muted-foreground">
-                    Cleanup removes only the original uploaded file after a job
-                    is final. Staged outcomes, downloadable row results, and the
-                    audit trail remain available.
+                    SCMS keeps a private copy of the spreadsheet on this server
+                    while you stage, review, and resolve the import. After a job
+                    is finished, automatic cleanup deletes that original file
+                    when this many days have passed. It does not delete imported
+                    parents, children, grants, row results, job logs, or audit
+                    history.
                   </p>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
                   <div className="space-y-2">
-                    <Label>Retain source files for days</Label>
+                    <Label>Keep the original spreadsheet for</Label>
                     <Input
                       type="number"
                       min="7"
@@ -1899,35 +1953,43 @@ export function ImportWorkspace() {
                                         </Button>
                                       </>
                                     )}
-                                    <Input
-                                      className="h-9 min-w-48 flex-1"
-                                      placeholder={
-                                        conflict.conflict_type ===
-                                        "identity_collision"
-                                          ? "Existing parent PN/O number"
-                                          : "Manual value"
-                                      }
-                                      value={manualValues[conflict.id] || ""}
-                                      onChange={(event) =>
-                                        setManualValues((current) => ({
-                                          ...current,
-                                          [conflict.id]: event.target.value,
-                                        }))
-                                      }
-                                    />
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      disabled={
-                                        Boolean(busy) ||
-                                        !manualValues[conflict.id]?.trim()
-                                      }
-                                      onClick={() =>
-                                        void resolveConflict(conflict, "manual")
-                                      }
-                                    >
-                                      Use manual
-                                    </Button>
+                                    {["child_identity_collision", "child_already_exists", "financial_dependency"].includes(conflict.conflict_type) && (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        disabled={Boolean(busy)}
+                                        onClick={() => void resolveConflict(conflict, "keep_existing")}
+                                      >
+                                        Keep protected record; skip row
+                                      </Button>
+                                    )}
+                                    {["identity_collision", "field_difference"].includes(conflict.conflict_type) && (
+                                      <>
+                                        <Input
+                                          className="h-9 min-w-48 flex-1"
+                                          placeholder={
+                                            conflict.conflict_type === "identity_collision"
+                                              ? "Existing parent PN/O number"
+                                              : "Manual value"
+                                          }
+                                          value={manualValues[conflict.id] || ""}
+                                          onChange={(event) =>
+                                            setManualValues((current) => ({
+                                              ...current,
+                                              [conflict.id]: event.target.value,
+                                            }))
+                                          }
+                                        />
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          disabled={Boolean(busy) || !manualValues[conflict.id]?.trim()}
+                                          onClick={() => void resolveConflict(conflict, "manual")}
+                                        >
+                                          Use manual
+                                        </Button>
+                                      </>
+                                    )}
                                     <Button
                                       size="sm"
                                       variant="destructive"
