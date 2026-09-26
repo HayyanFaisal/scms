@@ -2598,14 +2598,12 @@ export function registerImportPlatformRoutes(app, pool, transaction) {
         { fieldCode, alias },
         reason,
       );
-      res
-        .status(201)
-        .json({
-          id: Number(result.insertId),
-          field_code: fieldCode,
-          alias,
-          is_active: true,
-        });
+      res.status(201).json({
+        id: Number(result.insertId),
+        field_code: fieldCode,
+        alias,
+        is_active: true,
+      });
     } catch (error) {
       if (error?.code === "ER_DUP_ENTRY") {
         next(
@@ -2702,6 +2700,61 @@ export function registerImportPlatformRoutes(app, pool, transaction) {
         );
         return;
       }
+      next(error);
+    }
+  });
+
+  app.delete("/api/imports/heading-aliases/:id", async (req, res, next) => {
+    try {
+      const reason = String(req.body?.reason || "").trim();
+      const confirmation = String(req.body?.confirmation || "").trim();
+      if (reason.length < 5 || reason.length > 500)
+        throw publicError(
+          "Enter a deletion reason between 5 and 500 characters.",
+        );
+      await transaction(async (connection) => {
+        const [[existing]] = await connection.query(
+          "SELECT * FROM scms_import_heading_aliases WHERE id = ? FOR UPDATE",
+          [Number(req.params.id)],
+        );
+        if (!existing)
+          throw publicError(
+            "Heading alias was not found.",
+            404,
+            "IMPORT_ALIAS_NOT_FOUND",
+          );
+        if (Boolean(existing.is_active))
+          throw publicError(
+            "Disable this heading alias before deleting it.",
+            409,
+            "IMPORT_ALIAS_ACTIVE",
+          );
+        if (confirmation !== existing.alias)
+          throw publicError(
+            "Type the exact heading alias to confirm deletion.",
+            409,
+            "IMPORT_ALIAS_CONFIRMATION_REQUIRED",
+          );
+        await appendImportAudit(
+          connection,
+          req,
+          "import.heading_alias.deleted",
+          "import_heading_alias",
+          existing.id,
+          {
+            fieldCode: existing.field_code,
+            alias: existing.alias,
+            wasActive: Boolean(existing.is_active),
+          },
+          reason,
+        );
+        await connection.query(
+          "DELETE FROM scms_import_heading_aliases WHERE id = ?",
+          [existing.id],
+        );
+      });
+      res.status(204).end();
+    } catch (error) {
       next(error);
     }
   });
@@ -2989,6 +3042,81 @@ export function registerImportPlatformRoutes(app, pool, transaction) {
         mapping_json: parseJson(updated.mapping_json, {}),
         transforms_json: parseJson(updated.transforms_json, {}),
       });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/imports/mapping-templates/:id", async (req, res, next) => {
+    try {
+      const reason = String(req.body?.reason || "").trim();
+      const confirmation = String(req.body?.confirmation || "").trim();
+      const rowVersion = Number(req.body?.rowVersion);
+      if (reason.length < 5 || reason.length > 500)
+        throw publicError(
+          "Enter a deletion reason between 5 and 500 characters.",
+        );
+      await transaction(async (connection) => {
+        const [[existing]] = await connection.query(
+          "SELECT * FROM scms_import_mapping_templates WHERE id = ? FOR UPDATE",
+          [Number(req.params.id)],
+        );
+        if (!existing)
+          throw publicError(
+            "Mapping template was not found.",
+            404,
+            "IMPORT_TEMPLATE_NOT_FOUND",
+          );
+        const canManageAll =
+          req.staff?.permissions?.includes("imports.rollback");
+        if (
+          !canManageAll &&
+          Number(existing.created_by) !== Number(req.staff.id)
+        )
+          throw publicError(
+            "Mapping template was not found.",
+            404,
+            "IMPORT_TEMPLATE_NOT_FOUND",
+          );
+        if (Boolean(existing.is_active))
+          throw publicError(
+            "Archive this mapping template before deleting it.",
+            409,
+            "IMPORT_TEMPLATE_ACTIVE",
+          );
+        if (rowVersion !== Number(existing.row_version))
+          throw publicError(
+            "This mapping template changed after you opened it. Refresh and try again.",
+            409,
+            "IMPORT_TEMPLATE_VERSION_CONFLICT",
+          );
+        if (confirmation !== existing.name)
+          throw publicError(
+            "Type the exact mapping template name to confirm deletion.",
+            409,
+            "IMPORT_TEMPLATE_CONFIRMATION_REQUIRED",
+          );
+        await appendImportAudit(
+          connection,
+          req,
+          "import.mapping_template.deleted",
+          "import_mapping_template",
+          existing.id,
+          {
+            name: existing.name,
+            description: existing.description,
+            profile: existing.import_profile,
+            mapping: parseJson(existing.mapping_json, {}),
+            transforms: parseJson(existing.transforms_json, {}),
+          },
+          reason,
+        );
+        await connection.query(
+          "DELETE FROM scms_import_mapping_templates WHERE id = ?",
+          [existing.id],
+        );
+      });
+      res.status(204).end();
     } catch (error) {
       next(error);
     }

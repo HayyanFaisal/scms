@@ -11,6 +11,7 @@ import {
   Save,
   Settings2,
   ShieldCheck,
+  Trash2,
   Upload,
   XCircle,
 } from "lucide-react";
@@ -155,11 +156,18 @@ interface ImportSettings {
   cleanupEnabled: boolean;
   updatedAt?: string | null;
 }
+interface DeleteTarget {
+  kind: "template" | "alias";
+  id: number;
+  label: string;
+  rowVersion?: number;
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await apiFetch(path, init);
   if (!response.ok)
     throw new Error(await readApiError(response, "Import request failed."));
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
@@ -204,6 +212,9 @@ export function ImportWorkspace() {
   const [rollbackOpen, setRollbackOpen] = useState(false);
   const [rollbackReason, setRollbackReason] = useState("");
   const [rollbackConfirmation, setRollbackConfirmation] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [deleteReason, setDeleteReason] = useState("");
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
 
   const loadJobs = useCallback(async () => {
     const rows = await request<ImportJob[]>("/imports/jobs");
@@ -310,6 +321,20 @@ export function ImportWorkspace() {
         (field) => profile !== "parent" || field.group === "Parent",
       ),
     [catalog, profile],
+  );
+  const currentMappingRows = useMemo(
+    () =>
+      Object.entries(mapping)
+        .map(([fieldCode, sourceHeading]) => ({
+          fieldCode,
+          sourceHeading,
+          label:
+            catalog?.fields.find((field) => field.code === fieldCode)?.label ||
+            fieldCode,
+          transforms: transforms[fieldCode] || [],
+        }))
+        .sort((left, right) => left.label.localeCompare(right.label)),
+    [catalog, mapping, transforms],
   );
 
   const upload = async () => {
@@ -644,6 +669,49 @@ export function ImportWorkspace() {
     }
   };
 
+  const deleteConfigurationItem = async () => {
+    if (!deleteTarget) return;
+    setBusy("configuration-delete");
+    setError("");
+    setNotice("");
+    try {
+      const path =
+        deleteTarget.kind === "template"
+          ? `/imports/mapping-templates/${deleteTarget.id}`
+          : `/imports/heading-aliases/${deleteTarget.id}`;
+      await request(path, {
+        method: "DELETE",
+        body: JSON.stringify({
+          reason: deleteReason.trim(),
+          confirmation: deleteConfirmation.trim(),
+          rowVersion: deleteTarget.rowVersion,
+        }),
+      });
+      if (deleteTarget.kind === "template") {
+        await loadTemplates();
+        setSelectedTemplateId("");
+        setTemplateName("");
+        setTemplateDescription("");
+      } else {
+        await loadImportConfiguration();
+      }
+      setDeleteTarget(null);
+      setDeleteReason("");
+      setDeleteConfirmation("");
+      setNotice(
+        `${deleteTarget.kind === "template" ? "Mapping template" : "Heading alias"} permanently deleted. Its audit record remains available.`,
+      );
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Unable to delete the selected configuration item.",
+      );
+    } finally {
+      setBusy("");
+    }
+  };
+
   const saveImportSettings = async () => {
     const days = Number(retentionDays);
     if (!Number.isInteger(days) || days < 7 || days > 3650)
@@ -959,22 +1027,43 @@ export function ImportWorkspace() {
                             {alias.is_active ? "Active" : "Disabled"}
                           </Badge>
                           {canManageImportSettings && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              disabled={Boolean(busy)}
-                              onClick={() =>
-                                void setHeadingAliasActive(
-                                  alias,
-                                  !alias.is_active,
-                                )
-                              }
-                            >
-                              {busy === `alias-${alias.id}` && (
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            <>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                disabled={Boolean(busy)}
+                                onClick={() =>
+                                  void setHeadingAliasActive(
+                                    alias,
+                                    !alias.is_active,
+                                  )
+                                }
+                              >
+                                {busy === `alias-${alias.id}` && (
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                )}
+                                {alias.is_active ? "Disable" : "Enable"}
+                              </Button>
+                              {!alias.is_active && (
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  disabled={Boolean(busy)}
+                                  onClick={() => {
+                                    setDeleteReason("");
+                                    setDeleteConfirmation("");
+                                    setDeleteTarget({
+                                      kind: "alias",
+                                      id: alias.id,
+                                      label: alias.alias,
+                                    });
+                                  }}
+                                >
+                                  <Trash2 className="mr-2 h-4 w-4" />
+                                  Delete
+                                </Button>
                               )}
-                              {alias.is_active ? "Disable" : "Enable"}
-                            </Button>
+                            </>
                           )}
                         </div>
                       </div>
@@ -1329,14 +1418,82 @@ export function ImportWorkspace() {
                           (template) =>
                             String(template.id) === selectedTemplateId,
                         )?.is_active === false && (
-                          <Button
-                            variant="outline"
-                            disabled={Boolean(busy)}
-                            onClick={() => void setTemplateActive(true)}
-                          >
-                            Reactivate selected
-                          </Button>
+                          <>
+                            <Button
+                              variant="outline"
+                              disabled={Boolean(busy)}
+                              onClick={() => void setTemplateActive(true)}
+                            >
+                              Reactivate selected
+                            </Button>
+                            <Button
+                              variant="destructive"
+                              disabled={Boolean(busy)}
+                              onClick={() => {
+                                const template = templates.find(
+                                  (item) =>
+                                    String(item.id) === selectedTemplateId,
+                                );
+                                if (!template) return;
+                                setDeleteReason("");
+                                setDeleteConfirmation("");
+                                setDeleteTarget({
+                                  kind: "template",
+                                  id: template.id,
+                                  label: template.name,
+                                  rowVersion: template.row_version,
+                                });
+                              }}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Delete selected
+                            </Button>
+                          </>
                         )}
+                    </div>
+                    <div className="rounded-xl border">
+                      <div className="border-b bg-muted/30 px-4 py-3">
+                        <div className="font-medium">
+                          Current working mapping
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          This is the exact field-to-column mapping that will be
+                          validated and saved.
+                        </div>
+                      </div>
+                      {currentMappingRows.length === 0 ? (
+                        <p className="p-4 text-sm text-muted-foreground">
+                          No columns are currently mapped.
+                        </p>
+                      ) : (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>SCMS field</TableHead>
+                              <TableHead>Source heading</TableHead>
+                              <TableHead>Transforms</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {currentMappingRows.map((row) => (
+                              <TableRow key={row.fieldCode}>
+                                <TableCell>
+                                  <div className="font-medium">{row.label}</div>
+                                  <div className="text-xs text-muted-foreground">
+                                    {row.fieldCode}
+                                  </div>
+                                </TableCell>
+                                <TableCell>{row.sourceHeading}</TableCell>
+                                <TableCell className="text-xs text-muted-foreground">
+                                  {row.transforms.length
+                                    ? row.transforms.join(" → ")
+                                    : "Automatic defaults"}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -2015,6 +2172,74 @@ export function ImportWorkspace() {
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}
               Start guarded rollback
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open && busy !== "configuration-delete") {
+            setDeleteTarget(null);
+            setDeleteReason("");
+            setDeleteConfirmation("");
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Permanently delete{" "}
+              {deleteTarget?.kind === "template"
+                ? "mapping template"
+                : "heading alias"}
+              ?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This configuration item cannot be restored. Existing import jobs
+              keep their stored mappings, and the deletion remains in the audit
+              log.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Reason for deletion</Label>
+              <Input
+                value={deleteReason}
+                onChange={(event) => setDeleteReason(event.target.value)}
+                placeholder="Required audit reason"
+                maxLength={500}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Type “{deleteTarget?.label}” to confirm</Label>
+              <Input
+                value={deleteConfirmation}
+                onChange={(event) => setDeleteConfirmation(event.target.value)}
+              />
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy === "configuration-delete"}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={
+                busy === "configuration-delete" ||
+                deleteReason.trim().length < 5 ||
+                deleteConfirmation.trim() !== deleteTarget?.label
+              }
+              onClick={(event) => {
+                event.preventDefault();
+                void deleteConfigurationItem();
+              }}
+            >
+              {busy === "configuration-delete" && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Permanently delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

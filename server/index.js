@@ -18,6 +18,7 @@ import { assertReferenceValue, registerConfigurationRoutes } from './configurati
 import { PARENT_FIELD_COLUMNS, matchParentByIdentifiers, normalizeIdentifier, refreshChildCompleteness, refreshParentCompleteness, syncParentIdentifiers } from './profile-lifecycle.js';
 import { registerDocumentManagementRoutes } from './document-management.js';
 import { recoverImportWorkers, registerImportPlatformRoutes } from './import-platform.js';
+import { registerAuditLogRoutes } from './audit-log.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
@@ -343,6 +344,7 @@ registerAccessControlRoutes(app, pool);
 registerConfigurationRoutes(app, pool);
 registerDocumentManagementRoutes(app, pool, transaction);
 registerImportPlatformRoutes(app, pool, transaction);
+registerAuditLogRoutes(app, pool);
 
 app.post('/api/imports/provisional-record', async (req, res, next) => {
   try {

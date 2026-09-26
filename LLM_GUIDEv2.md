@@ -70,19 +70,19 @@ School-fee and gadget workflows remain part of the broader product requirements,
 
 ## 3. Terminology
 
-| Term | Meaning |
-|---|---|
-| Parent | Parent, guardian, or naval beneficiary responsible for one or more children. |
-| PN/O No | Service/personnel number. Current database column: `P_No_O_No`. It is the intended parent login name. |
-| CNIC | Pakistani national identity number. Store a normalized 13-digit value; format for display only. |
-| Child identity | B-Form/CNIC when available; otherwise a provisional system child ID plus deduplication attributes. |
-| Authority | Administrative formation or organization responsible for scoped employee records. |
-| Category | Parent-selected support category A, B, or C, subject to approval. It is not a clinical diagnosis. |
-| Case/application | A versioned submission containing parent/child data and required evidence for review. |
-| Document type | A configurable definition such as birth certificate, B-Form, or medical certificate. |
-| Form template | A configurable structured digital form used instead of, or alongside, a file upload. |
-| Provisional parent | A minimal parent record created by import because a child exists but complete parent data does not. |
-| Data scope | The records a user may act on, separate from what actions their role permits. |
+| Term               | Meaning                                                                                               |
+| ------------------ | ----------------------------------------------------------------------------------------------------- |
+| Parent             | Parent, guardian, or naval beneficiary responsible for one or more children.                          |
+| PN/O No            | Service/personnel number. Current database column: `P_No_O_No`. It is the intended parent login name. |
+| CNIC               | Pakistani national identity number. Store a normalized 13-digit value; format for display only.       |
+| Child identity     | B-Form/CNIC when available; otherwise a provisional system child ID plus deduplication attributes.    |
+| Authority          | Administrative formation or organization responsible for scoped employee records.                     |
+| Category           | Parent-selected support category A, B, or C, subject to approval. It is not a clinical diagnosis.     |
+| Case/application   | A versioned submission containing parent/child data and required evidence for review.                 |
+| Document type      | A configurable definition such as birth certificate, B-Form, or medical certificate.                  |
+| Form template      | A configurable structured digital form used instead of, or alongside, a file upload.                  |
+| Provisional parent | A minimal parent record created by import because a child exists but complete parent data does not.   |
+| Data scope         | The records a user may act on, separate from what actions their role permits.                         |
 
 ## 4. Current repository truth
 
@@ -103,18 +103,18 @@ Parent portal
 
 ### Important paths
 
-| Path | Current responsibility |
-|---|---|
-| `src/` | Main admin and authority React application. |
-| `src/services/database.ts` | Browser-side cache, prototype CRUD, hard-coded main users, and local audit/notification state. |
-| `src/services/auth.ts` | Prototype client-side role checks. These are not a secure authorization boundary. |
-| `server/index.js` | Main Express routes for core CRUD, approvals, uploads, and authority reads. |
-| `server/database.js` | MySQL pool and startup-time schema alterations. |
-| `parent-portal/client/src/` | Parent-facing React application. |
-| `parent-portal/server.js` | Parent authentication, profile, child, upload, banking, and sync routes. |
-| `SCWMS_Requirements.md` | OCR-derived stakeholder requirements. |
-| `LLM_GUIDE.md` | Historical implementation guide; some claims are outdated or unsafe. |
-| `README.md` | Historical local setup notes; not a production runbook. |
+| Path                        | Current responsibility                                                                         |
+| --------------------------- | ---------------------------------------------------------------------------------------------- |
+| `src/`                      | Main admin and authority React application.                                                    |
+| `src/services/database.ts`  | Browser-side cache, prototype CRUD, hard-coded main users, and local audit/notification state. |
+| `src/services/auth.ts`      | Prototype client-side role checks. These are not a secure authorization boundary.              |
+| `server/index.js`           | Main Express routes for core CRUD, approvals, uploads, and authority reads.                    |
+| `server/database.js`        | MySQL pool and startup-time schema alterations.                                                |
+| `parent-portal/client/src/` | Parent-facing React application.                                                               |
+| `parent-portal/server.js`   | Parent authentication, profile, child, upload, banking, and sync routes.                       |
+| `SCWMS_Requirements.md`     | OCR-derived stakeholder requirements.                                                          |
+| `LLM_GUIDE.md`              | Historical implementation guide; some claims are outdated or unsafe.                           |
+| `README.md`                 | Historical local setup notes; not a production runbook.                                        |
 
 ### Current capabilities
 
@@ -228,24 +228,24 @@ The UI may use the same authorization result to hide or disable controls, but th
 
 ### Protected built-in roles
 
-| Capability | Director | Admin | Support |
-|---|---:|---:|---:|
-| Use operational dashboard | Yes | Yes | Yes |
-| View parents/children in scope | Yes | Yes | Yes |
-| Edit ordinary demographic/contact fields | Yes | Yes | Yes |
-| Review applications and request corrections | Yes | Yes | View/assist by default |
-| Approve/reject applications | Yes | Yes | No by default |
-| Permanently block further requests | Yes | Configurable, default No | No |
-| View/verify configured documents | Yes | Yes | Metadata only by default |
-| View/manage banking evidence | Yes | Yes | No by default |
-| Run imports and resolve conflicts | Yes | Yes | No by default |
-| Manage authorities, schools, ranks, units | Yes | Yes | No by default |
-| Issue/reset parent one-time password | Yes | Yes | Yes |
-| Manage category rates | Yes | No by default | No |
-| Manage staff accounts | Yes | Limited by delegated permission | No |
-| Create roles/change permissions | Yes | No | No |
-| Manage system/security settings | Yes | No | No |
-| Read audit log | Yes | Limited operational view | No by default |
+| Capability                                  | Director |                           Admin |                  Support |
+| ------------------------------------------- | -------: | ------------------------------: | -----------------------: |
+| Use operational dashboard                   |      Yes |                             Yes |                      Yes |
+| View parents/children in scope              |      Yes |                             Yes |                      Yes |
+| Edit ordinary demographic/contact fields    |      Yes |                             Yes |                      Yes |
+| Review applications and request corrections |      Yes |                             Yes |   View/assist by default |
+| Approve/reject applications                 |      Yes |                             Yes |            No by default |
+| Permanently block further requests          |      Yes |        Configurable, default No |                       No |
+| View/verify configured documents            |      Yes |                             Yes | Metadata only by default |
+| View/manage banking evidence                |      Yes |                             Yes |            No by default |
+| Run imports and resolve conflicts           |      Yes |                             Yes |            No by default |
+| Manage authorities, schools, ranks, units   |      Yes |                             Yes |            No by default |
+| Issue/reset parent one-time password        |      Yes |                             Yes |                      Yes |
+| Manage category rates                       |      Yes |                   No by default |                       No |
+| Manage staff accounts                       |      Yes | Limited by delegated permission |                       No |
+| Create roles/change permissions             |      Yes |                              No |                       No |
+| Manage system/security settings             |      Yes |                              No |                       No |
+| Read audit log                              |      Yes |        Limited operational view |            No by default |
 
 These are initial defaults. The Director can create roles such as Finance, Staff, Auditor, Import Operator, or Authority Reviewer and assign permissions. The system must protect the last active Director from deletion, deactivation, or loss of the permissions required to restore administration.
 
@@ -478,10 +478,10 @@ The Director can configure a policy for all authorities and override it for a sp
 Initial rate schedule:
 
 | Category | Monthly rate |
-|---|---:|
-| A | PKR 25,000 |
-| B | PKR 20,000 |
-| C | PKR 15,000 |
+| -------- | -----------: |
+| A        |   PKR 25,000 |
+| B        |   PKR 20,000 |
+| C        |   PKR 15,000 |
 
 Rates require start date, optional end date, currency, creator/approver, reason, and audit entry. Editing a rate creates a new version; it never overwrites the rate used by a historical payment.
 
@@ -609,7 +609,9 @@ Current implementation status (2026-09-26): migration `010_documents_and_forms.j
 2. Parent/child/provisional-parent imports.
 3. Durable progress/logs, conflict resolution, idempotency, result reports, and controlled rollback.
 
-Current implementation status (2026-09-26): migrations `011_import_platform.js`, `012_import_operations.js`, and `013_import_configuration.js` plus `server/import-platform.js` provide protected `.xlsx`/UTF-8 `.csv` upload, sheet/header selection, parent/child/mixed profiles, durable staged rows, explicit canonical mapping, bounded transforms, saved mapping-template create/update/archive/reactivation, configurable Unicode heading aliases, dry-run validation, normalized PN/CNIC matching, reference/scope checks, field and child-identity conflicts, per-conflict decisions, provisional parent/child execution, server-side progress/heartbeat/logs, before/after row provenance, formula-safe UTF-8 CSV and streamed native `.xlsx` result downloads, startup recovery for interrupted execution/rollback workers, guarded rollback, and configurable 7-3650 day source-file retention. `src/sections/ImportWorkspace.tsx` exposes the operational workflow under `imports.create`, `imports.resolve`, `imports.execute`, and `imports.rollback`; configuration inspection/changes use `settings.read` and `settings.manage`. Startup/daily/manual retention cleanup removes only original source files for final jobs and keeps staged results, reports, logs, and audit history. Rollback requires a reason plus typed job number, reverses rows in reverse order, and leaves a protected result instead of overwriting records edited later or deleting records with downstream links. Legacy `.xls` is rejected with conversion guidance because the selected parser supports modern `.xlsx` only. Still pending are distributed multi-node worker leasing, broader import profiles, bulk conflict actions, `.xls` conversion, and high-volume certification.
+Current implementation status (2026-09-26): migrations `011_import_platform.js`, `012_import_operations.js`, and `013_import_configuration.js` plus `server/import-platform.js` provide protected `.xlsx`/UTF-8 `.csv` upload, sheet/header selection, parent/child/mixed profiles, durable staged rows, explicit canonical mapping, bounded transforms, saved mapping-template create/update/archive/reactivation, configurable Unicode heading aliases, dry-run validation, normalized PN/CNIC matching, reference/scope checks, field and child-identity conflicts, per-conflict decisions, provisional parent/child execution, server-side progress/heartbeat/logs, before/after row provenance, formula-safe UTF-8 CSV and streamed native `.xlsx` result downloads, startup recovery for interrupted execution/rollback workers, guarded rollback, and configurable 7-3650 day source-file retention. `src/sections/ImportWorkspace.tsx` exposes the operational workflow under `imports.create`, `imports.resolve`, `imports.execute`, and `imports.rollback`; configuration inspection/changes use `settings.read` and `settings.manage`. It shows the exact current field/source/transform mapping. Archived mapping templates and disabled custom aliases can be permanently deleted only with a reason plus exact-name confirmation; deletion keeps an audit snapshot. Startup/daily/manual retention cleanup removes only original source files for final jobs and keeps staged results, reports, logs, and audit history. Rollback requires a reason plus typed job number, reverses rows in reverse order, and leaves a protected result instead of overwriting records edited later or deleting records with downstream links. `test-data/SCMS_Parent_Import_Test_50_Rows.xlsx` is a generated, live-validated 50-row parent test workbook with instructions and a mapping guide. Legacy `.xls` is rejected with conversion guidance because the selected parser supports modern `.xlsx` only. Still pending are distributed multi-node worker leasing, broader import profiles, bulk conflict actions, `.xls` conversion, and high-volume certification.
+
+Current audit status (2026-09-26): `server/audit-log.js` and `src/sections/AuditLog.tsx` expose the immutable MySQL `scms_audit_events` feed through a dedicated `audit.read` sidebar page. It supports server-side text/date/action/entity/outcome filters, pagination, structured-detail viewing, and an `audit.export`-protected formula-safe CSV whose export action is also audited. The previous browser-local audit tab has been replaced by this server view. Authority-aware audit filtering and separately permissioned sensitive detail payloads remain hardening work.
 
 ### Phase 4 - program operations
 

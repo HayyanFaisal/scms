@@ -3,6 +3,7 @@
 SCMS is a comprehensive platform built for the **Pakistan Navy Benevolent Association (PNBA)** to manage beneficiaries, special children medical profiles, educational records, monthly financial grants, assistive gadget procurement, and multi-tiered approval workflows.
 
 The system is composed of two primary sub-systems:
+
 1. **SCMS Main System**: The central administration and regional authority portal.
 2. **Parent Portal**: A self-service portal for naval personnel/parents to register, submit child details, upload medical/disability documents, and manage banking information.
 
@@ -10,13 +11,13 @@ The system is composed of two primary sub-systems:
 
 ## Portals & System URLs
 
-| Portal / Service | URL / Address | Description | Default Credentials |
-| :--- | :--- | :--- | :--- |
-| **Main Admin Portal** | [http://localhost:5173](http://localhost:5173) | Central dashboard for beneficiaries, children, grants, gadgets, and approvals inbox. | Individual Director/Admin/Support account |
-| **Authority Portal** | [http://localhost:5173/authority.html](http://localhost:5173/authority.html) | Legacy regional command portal. Shared-password login is disabled by default while it is migrated to named RBAC accounts. | No default credential |
-| **Main Backend API** | [http://localhost:3001](http://localhost:3001) | Express REST API for Main SCMS & Authority Portal. | N/A |
-| **Parent Portal Frontend** | [http://localhost:5174](http://localhost:5174) | Self-service portal for parents to register, add children, upload files, and manage bank info. | Registered Parent P.No/O.No & Password |
-| **Parent Portal Backend API** | [http://localhost:4000](http://localhost:4000) | Express REST API for Parent Portal authentication, document uploads, and syncing. | N/A |
+| Portal / Service              | URL / Address                                                                | Description                                                                                                               | Default Credentials                       |
+| :---------------------------- | :--------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------ | :---------------------------------------- |
+| **Main Admin Portal**         | [http://localhost:5173](http://localhost:5173)                               | Central dashboard for beneficiaries, children, grants, gadgets, and approvals inbox.                                      | Individual Director/Admin/Support account |
+| **Authority Portal**          | [http://localhost:5173/authority.html](http://localhost:5173/authority.html) | Legacy regional command portal. Shared-password login is disabled by default while it is migrated to named RBAC accounts. | No default credential                     |
+| **Main Backend API**          | [http://localhost:3001](http://localhost:3001)                               | Express REST API for Main SCMS & Authority Portal.                                                                        | N/A                                       |
+| **Parent Portal Frontend**    | [http://localhost:5174](http://localhost:5174)                               | Self-service portal for parents to register, add children, upload files, and manage bank info.                            | Registered Parent P.No/O.No & Password    |
+| **Parent Portal Backend API** | [http://localhost:4000](http://localhost:4000)                               | Express REST API for Parent Portal authentication, document uploads, and syncing.                                         | N/A                                       |
 
 ---
 
@@ -167,7 +168,9 @@ The system is composed of two primary sub-systems:
 ## Environment Configuration
 
 ### 1. Root System (`.env`)
+
 Create or verify `.env` in the root `scms` directory:
+
 ```env
 DATABASE_URL=mysql://root:YourPassword@127.0.0.1:3306/pnba
 PORT=3001
@@ -181,7 +184,9 @@ JWT_SECRET=scms_jwt_secret_make_this_long_and_random_change_in_production
 ```
 
 ### 2. Parent Portal (`parent-portal/.env`)
+
 Create or verify `parent-portal/.env`:
+
 ```env
 PORTAL_HOST=127.0.0.1
 PORTAL_PORT=4000
@@ -292,43 +297,57 @@ Migrations `011_import_platform.js`, `012_import_operations.js`, and `013_import
 - `imports.execute` starts execution of eligible rows. Progress, heartbeat, row outcome, before/after data, and logs are stored server-side and survive a browser refresh.
 - Interrupted execution and rollback workers are discovered from MySQL and resumed when the API starts. Already executed or reversed rows are not applied twice.
 - Operators can create, update, archive, reactivate, and reuse mappings. Outcome reports containing every row result, issue, target record, and rollback result are available as UTF-8 CSV and genuine `.xlsx` workbooks.
+- The selected/current mapping is shown as an exact SCMS-field, source-heading, and transform table. Archived templates and disabled custom heading aliases can be permanently deleted only after entering a reason and typing the exact name; their deletion audit event remains immutable.
 - `imports.rollback` exposes a Director-only guarded rollback. It requires a reason and typed job number, processes rows in reverse order, and refuses to overwrite records edited later or delete records that gained linked operational data.
 
 Current Phase 3 limitations: legacy `.xls`, distributed multi-node worker leasing, more import profiles, bulk conflict decisions, and high-volume performance certification remain follow-up work. The current CSV and Excel result exports are genuine files of the advertised type.
 
+For a safe guided test, use `test-data/SCMS_Parent_Import_Test_50_Rows.xlsx`. It contains exactly 50 clearly marked parent rows plus **Read Me** and **Mapping Guide** sheets. Choose **Parents only**, worksheet **Parents 50**, and header row **1**, then run dry validation before execution. Regenerate it with `npm run generate:test-import`.
+
+### Audit log
+
+Accounts with `audit.read` see **Audit Log** in the staff sidebar; it is also available inside Reports when the user has both report and audit permissions. This page reads the immutable `scms_audit_events` server table rather than the retired browser-local prototype log. It supports server-side search, action/entity/outcome/date filters, pagination, structured-detail inspection, and refresh. `audit.export` adds a filtered CSV export, and the export itself is audited. The page provides no edit or delete operation.
+
 Open separate terminals to run both portals simultaneously:
 
 ### Terminal 1: Run Main SCMS (Admin + Authority + Backend)
+
 ```powershell
 cd scms
 npm install
 npm run dev
 ```
-* **Backend API**: Running at [http://localhost:3001](http://localhost:3001)
-* **Main Admin Portal**: Access at [http://localhost:5173](http://localhost:5173)
-* **Authority Portal**: Access at [http://localhost:5173/authority.html](http://localhost:5173/authority.html)
+
+- **Backend API**: Running at [http://localhost:3001](http://localhost:3001)
+- **Main Admin Portal**: Access at [http://localhost:5173](http://localhost:5173)
+- **Authority Portal**: Access at [http://localhost:5173/authority.html](http://localhost:5173/authority.html)
 
 ### Terminal 2: Run Parent Portal Backend
+
 ```powershell
 cd scms\parent-portal
 npm install
 npm start
 ```
-* **Parent Portal API**: Running at [http://localhost:4000](http://localhost:4000)
+
+- **Parent Portal API**: Running at [http://localhost:4000](http://localhost:4000)
 
 ### Terminal 3: Run Parent Portal Client
+
 ```powershell
 cd scms\parent-portal\client
 npm install
 npm run dev
 ```
-* **Parent Portal Frontend**: Access at [http://localhost:5174](http://localhost:5174)
+
+- **Parent Portal Frontend**: Access at [http://localhost:5174](http://localhost:5174)
 
 ---
 
 ## Features & Workflows
 
 ### 1. Main Admin Portal ([http://localhost:5173](http://localhost:5173))
+
 - **Role-based Authentication**: protected Director, Admin, Support, and Director-created custom roles.
 - **Beneficiary Registry**: Detailed tracking of naval parents (Serving, Retired, Expired), service rankings, almirah & file records, and bank accounts.
 - **Dependent Children**: Child records, assigned disability categories (Category A: Severe, Category B: Moderate, Category C: Mild), medical condition details, and schooling.
@@ -337,10 +356,12 @@ npm run dev
 - **Reports & Exporting**: Generate comprehensive PDF and tabular exports for board presentations.
 
 ### 2. Authority Portal ([http://localhost:5173/authority.html](http://localhost:5173/authority.html))
+
 - Dedicated portal for regional commands (HQ COMNOR, HQ COMKAR, HQ COMCEP, HQ COMLOG, HQ COMPAK, HQ COMCOAST, HQ FOST, HQ NSFC, HQ PMSA).
 - Provides command-specific filtered dashboards and grant statistics.
 
 ### 3. Parent Portal ([http://localhost:5174](http://localhost:5174))
+
 - **Self-Service Registration**: Parents sign up using their Official P.No / O.No, CNIC, rank, unit, and service status.
 - **Add Child (2-Step Wizard)**:
   1. Enter child identity, school, and the parent-selected category.

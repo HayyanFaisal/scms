@@ -46,22 +46,22 @@ A medical certificate can still be requested as an ordinary configurable documen
 
 The target user experience can be served as separate frontend bundles, but it is one secured system.
 
-| Area | Intended users | Main purpose |
-|---|---|---|
-| Staff portal | Director, Admin, Support, and custom staff roles | Registry, review, settings, imports, operations, reports, and audit. |
-| Authority workspace | Named accounts scoped to one or more authorities | Access permitted employee/child records and perform permitted tasks. |
-| Parent portal | Parent/guardian accounts | Complete profile, manage children, submit applications, upload evidence, complete forms, and respond to corrections. |
-| Operations/settings | Director and specifically delegated roles | Configure users, roles, master data, rates, document/form requirements, security, imports, and system behavior. |
+| Area                | Intended users                                   | Main purpose                                                                                                         |
+| ------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| Staff portal        | Director, Admin, Support, and custom staff roles | Registry, review, settings, imports, operations, reports, and audit.                                                 |
+| Authority workspace | Named accounts scoped to one or more authorities | Access permitted employee/child records and perform permitted tasks.                                                 |
+| Parent portal       | Parent/guardian accounts                         | Complete profile, manage children, submit applications, upload evidence, complete forms, and respond to corrections. |
+| Operations/settings | Director and specifically delegated roles        | Configure users, roles, master data, rates, document/form requirements, security, imports, and system behavior.      |
 
 ### Current prototype URLs
 
-| Component | Development address |
-|---|---|
-| Main staff portal | `http://localhost:5173` |
-| Authority page | `http://localhost:5173/authority.html` |
-| Main API | `http://localhost:3001` |
-| Parent portal | `http://localhost:5174` |
-| Parent API | `http://localhost:4000` |
+| Component         | Development address                    |
+| ----------------- | -------------------------------------- |
+| Main staff portal | `http://localhost:5173`                |
+| Authority page    | `http://localhost:5173/authority.html` |
+| Main API          | `http://localhost:3001`                |
+| Parent portal     | `http://localhost:5174`                |
+| Parent API        | `http://localhost:4000`                |
 
 These are local development addresses only. The target deployment should use internal DNS and a same-origin reverse proxy instead of exposing development servers.
 
@@ -254,17 +254,17 @@ The parent or authorized staff may add the child, select the claimed category, c
 
 ### States
 
-| State | Meaning |
-|---|---|
-| Draft | Parent/staff is still preparing it. |
-| Submitted | Applicant has declared it ready. |
-| Under Review | A reviewer has taken or been assigned the work. |
-| Changes Required | Reviewer identified correctable missing/invalid information. |
-| Resubmitted | Applicant supplied a new version for review. |
-| Approved | Authorized decision completed successfully. |
-| Rejected - Retry Allowed | Request declined, but a future corrected/new request is permitted. |
+| State                    | Meaning                                                                |
+| ------------------------ | ---------------------------------------------------------------------- |
+| Draft                    | Parent/staff is still preparing it.                                    |
+| Submitted                | Applicant has declared it ready.                                       |
+| Under Review             | A reviewer has taken or been assigned the work.                        |
+| Changes Required         | Reviewer identified correctable missing/invalid information.           |
+| Resubmitted              | Applicant supplied a new version for review.                           |
+| Approved                 | Authorized decision completed successfully.                            |
+| Rejected - Retry Allowed | Request declined, but a future corrected/new request is permitted.     |
 | Blocked - Office Contact | Online requests are disabled until authorized staff resolve the issue. |
-| Closed | Previously active matter is no longer active. |
+| Closed                   | Previously active matter is no longer active.                          |
 
 ### Reviewing a submission
 
@@ -286,11 +286,11 @@ The parent chooses A, B, or C. Keep that `claimed category` even if staff approv
 
 Default monthly rates are:
 
-| Category | Rate |
-|---|---:|
-| A | PKR 25,000 |
-| B | PKR 20,000 |
-| C | PKR 15,000 |
+| Category |       Rate |
+| -------- | ---------: |
+| A        | PKR 25,000 |
+| B        | PKR 20,000 |
+| C        | PKR 15,000 |
 
 Only Director or a role with `rates.manage` can publish a new effective-dated schedule. Historical grants/payments retain the old rate snapshot. The Director must confirm the initial schedule before live payments begin.
 
@@ -357,7 +357,7 @@ Migrations `011_import_platform.js`, `012_import_operations.js`, and `013_import
 
 The current API accepts `.xlsx` and UTF-8 `.csv`; selects a sheet and 1-based header row; stages parent, child, or mixed rows; maps arbitrary headings; applies bounded transforms; validates active reference values and parent authority scope; matches parents through normalized CNIC/PN identifiers; detects field differences and child identifier collisions; and executes only eligible rows. New unmatched parents are provisional and incomplete, missing values remain null, child rows require a usable parent identifier, and execution records before/after provenance. Conflict decisions require `imports.resolve`; execution requires `imports.execute`; protected upload/mapping/dry-run access requires `imports.create`.
 
-Execution uses an in-process background runner with durable row outcomes and startup recovery. On API startup, jobs left in `executing` or `rolling_back` are resumed, and completed rows are skipped, making recovery idempotent on a single API instance. Operators can create, update, archive, reactivate, and reuse mapping templates. Reports are downloadable as formula-safe UTF-8 CSV or a streamed native `.xlsx` workbook. Director-only guarded rollback requires a reason and typed job number, works in reverse source order, restores only fields still equal to their import snapshot, and protects records with later edits or linked operational data. Users with `settings.manage` can maintain Unicode heading aliases and a 7-3650 day source-retention policy; startup and daily cleanup remove only eligible final-job source files and preserve results and audit records. Distributed multi-node leasing, `.xls` conversion, bulk conflict decisions, broader profiles, and load testing at the 100,000-row guardrail remain unfinished.
+Execution uses an in-process background runner with durable row outcomes and startup recovery. On API startup, jobs left in `executing` or `rolling_back` are resumed, and completed rows are skipped, making recovery idempotent on a single API instance. Operators can create, update, archive, reactivate, and reuse mapping templates, and the UI displays the exact current field-to-heading mapping plus transforms. An archived template can be permanently deleted only by its owner or a user with `imports.rollback`, after a reason and exact-name confirmation. Disabled heading aliases have an equivalent guarded delete available to `settings.manage`; both deletions preserve a snapshot in the immutable audit log. Reports are downloadable as formula-safe UTF-8 CSV or a streamed native `.xlsx` workbook. Director-only guarded rollback requires a reason and typed job number, works in reverse source order, restores only fields still equal to their import snapshot, and protects records with later edits or linked operational data. Users with `settings.manage` can maintain Unicode heading aliases and a 7-3650 day source-retention policy; startup and daily cleanup remove only eligible final-job source files and preserve results and audit records. Distributed multi-node leasing, `.xls` conversion, bulk conflict decisions, broader profiles, and load testing at the 100,000-row guardrail remain unfinished.
 
 ## 9. Excel/CSV import manual
 
@@ -387,16 +387,18 @@ Users with `settings.read` can inspect import configuration. Users with `setting
 
 The same section controls source-file retention. Choose 7-3650 days and enable or disable automatic cleanup. Cleanup runs at API startup and every 24 hours, and an authorized user can run it immediately. Only original protected uploads belonging to final jobs are removed. Job metadata, staged rows, conflicts, reports, logs, and audit events remain in MySQL. Once a source has been retired, the completed result remains reviewable but the job cannot be restaged from the original file.
 
+The repository includes `test-data/SCMS_Parent_Import_Test_50_Rows.xlsx`, generated by `npm run generate:test-import`. It contains exactly 50 parent rows, a Read Me sheet, and a Mapping Guide. Choose the **Parents only** profile, **Parents 50** worksheet, and header row **1**. Dry validation is safe; execution creates clearly prefixed provisional test parents and should be followed by guarded rollback if those records are no longer required.
+
 ### Example heading mapping
 
-| Source heading | Canonical field | Transform |
-|---|---|---|
-| `Svc No` | Parent PN/O No | Trim + uppercase |
-| `NIC #` | Parent CNIC | Remove dashes/spaces |
-| `Command` | Authority | Alias lookup |
-| `Dependent Name` | Child name | Trim |
-| `B Form` | Child B-Form/CNIC | Remove dashes/spaces |
-| `Cat` | Claimed category | A/B/C lookup |
+| Source heading   | Canonical field   | Transform            |
+| ---------------- | ----------------- | -------------------- |
+| `Svc No`         | Parent PN/O No    | Trim + uppercase     |
+| `NIC #`          | Parent CNIC       | Remove dashes/spaces |
+| `Command`        | Authority         | Alias lookup         |
+| `Dependent Name` | Child name        | Trim                 |
+| `B Form`         | Child B-Form/CNIC | Remove dashes/spaces |
+| `Cat`            | Claimed category  | A/B/C lookup         |
 
 ### Conflict handling
 
@@ -524,7 +526,7 @@ The requirements identify budget utilization, pending cases, payment history, ac
 
 ### Audit viewer
 
-Authorized users can filter by date, actor, action, module, entity, authority, and correlation ID. The UI cannot edit/delete audit events. Sensitive before/after fields are redacted or separately permissioned. Export itself is audited.
+The implemented **Audit Log** sidebar page requires `audit.read` and reads `scms_audit_events` from MySQL through `server/audit-log.js`; the former local-browser audit view is retired. Authorized users can search actor, action, entity, reason, ID, and correlation ID, filter by date/action/entity/outcome, page through results, and inspect structured details. The UI cannot edit or delete events. Users with `audit.export` can download a formula-safe filtered CSV, and that export is itself audited. Authority-aware audit filtering and separately permissioned sensitive before/after payloads remain future hardening items.
 
 ## 14. Technical architecture
 
@@ -889,20 +891,20 @@ Before handoff:
 
 ## 22. Current-to-target warning map
 
-| Current prototype behavior | Required replacement |
-|---|---|
-| DB-backed RBAC UI, authority scopes, and parent field policies for core parent-linked modules | Extend the same policy to every legacy/admin route, then add effective-dated assignments, access preview, and full session operations. |
-| Hardened but still shared password per legacy authority | Individual named accounts with authority scope. |
-| Authenticated CRUD/bootstrap routes with permission checks and initial SQL scopes, but no pagination/versioning | Versioned, fully scoped, field-filtered, paginated APIs. |
-| Browser localStorage as database/audit cache | Server database as source of truth and append-only audit. |
-| Two APIs write the same tables and synchronize them | One modular transactional API. |
-| PN/O No used directly as parent primary/foreign key | Stable parent ID plus identifier/alias tables. |
-| Fixed four-document upload wizard | Configurable document requirements and structured forms. |
-| Parent-level child-document lookup | Exact child/application/document association. |
-| Local/generated notifications | Durable scoped notification inbox/outbox. |
-| CSV presented as multiple export types | True CSV/XLSX/PDF generation as advertised. |
-| Startup schema alterations/manual SQL | Versioned tested migrations. |
-| Public font/icon requests | Locally bundled air-gap assets. |
-| Source/config secrets and uploads tracked in Git | Clean history, rotated secrets, ignored runtime data. |
+| Current prototype behavior                                                                                      | Required replacement                                                                                                                   |
+| --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| DB-backed RBAC UI, authority scopes, and parent field policies for core parent-linked modules                   | Extend the same policy to every legacy/admin route, then add effective-dated assignments, access preview, and full session operations. |
+| Hardened but still shared password per legacy authority                                                         | Individual named accounts with authority scope.                                                                                        |
+| Authenticated CRUD/bootstrap routes with permission checks and initial SQL scopes, but no pagination/versioning | Versioned, fully scoped, field-filtered, paginated APIs.                                                                               |
+| Browser localStorage as database/audit cache                                                                    | Server database as source of truth and append-only audit.                                                                              |
+| Two APIs write the same tables and synchronize them                                                             | One modular transactional API.                                                                                                         |
+| PN/O No used directly as parent primary/foreign key                                                             | Stable parent ID plus identifier/alias tables.                                                                                         |
+| Fixed four-document upload wizard                                                                               | Configurable document requirements and structured forms.                                                                               |
+| Parent-level child-document lookup                                                                              | Exact child/application/document association.                                                                                          |
+| Local/generated notifications                                                                                   | Durable scoped notification inbox/outbox.                                                                                              |
+| CSV presented as multiple export types                                                                          | True CSV/XLSX/PDF generation as advertised.                                                                                            |
+| Startup schema alterations/manual SQL                                                                           | Versioned tested migrations.                                                                                                           |
+| Public font/icon requests                                                                                       | Locally bundled air-gap assets.                                                                                                        |
+| Source/config secrets and uploads tracked in Git                                                                | Clean history, rotated secrets, ignored runtime data.                                                                                  |
 
 This table is a migration guide, not permission to keep parallel insecure paths. Retire old paths as secure equivalents become available.

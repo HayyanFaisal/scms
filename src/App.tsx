@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
-import { 
-  LayoutDashboard, 
-  Users, 
-  Wallet, 
-  FileSpreadsheet, 
-  LogOut, 
+import { useState, useEffect } from "react";
+import {
+  LayoutDashboard,
+  Users,
+  Wallet,
+  FileSpreadsheet,
+  LogOut,
   Bell,
   Menu,
   ChevronLeft,
@@ -17,54 +17,57 @@ import {
   UserCog,
   KeyRound,
   FileCheck2,
-  TableProperties
-} from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
-  DropdownMenuTrigger 
-} from '@/components/ui/dropdown-menu';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Login } from '@/sections/Login';
-import { ChangePassword } from '@/sections/ChangePassword';
-import { Dashboard } from '@/sections/Dashboard';
-import { ParentManagement, ParentDetail } from '@/sections/ParentManagement';
-import { ParentForm } from '@/sections/ParentForm';
-import { ChildForm } from '@/sections/ChildForm';
-import { ChildDetail } from '@/sections/ChildDetail';
-import { GrantGadgetManager } from '@/sections/GrantGadgetManager';
-import { ReportsExports } from '@/sections/ReportsExports';
-import { AccessControl } from '@/sections/AccessControl';
-import { SystemConfiguration } from '@/sections/SystemConfiguration';
-import { DocumentReview } from '@/sections/DocumentReview';
-import { ImportWorkspace } from '@/sections/ImportWorkspace';
-import RequestsTab from '@/components/Admin/RequestsTab';
-import { useAuth } from '@/hooks/useAuth';
-import { useTheme } from '@/hooks/useTheme';
-import { getAllNotifications, getUnreadCount } from '@/lib/notifications';
-import { db } from '@/services/database';
-import { apiFetch } from '@/services/http';
-import type { Notification } from '@/types';
-import './App.css';
+  TableProperties,
+  History,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Login } from "@/sections/Login";
+import { ChangePassword } from "@/sections/ChangePassword";
+import { Dashboard } from "@/sections/Dashboard";
+import { ParentManagement, ParentDetail } from "@/sections/ParentManagement";
+import { ParentForm } from "@/sections/ParentForm";
+import { ChildForm } from "@/sections/ChildForm";
+import { ChildDetail } from "@/sections/ChildDetail";
+import { GrantGadgetManager } from "@/sections/GrantGadgetManager";
+import { ReportsExports } from "@/sections/ReportsExports";
+import { AccessControl } from "@/sections/AccessControl";
+import { SystemConfiguration } from "@/sections/SystemConfiguration";
+import { DocumentReview } from "@/sections/DocumentReview";
+import { ImportWorkspace } from "@/sections/ImportWorkspace";
+import { AuditLog } from "@/sections/AuditLog";
+import RequestsTab from "@/components/Admin/RequestsTab";
+import { useAuth } from "@/hooks/useAuth";
+import { useTheme } from "@/hooks/useTheme";
+import { getAllNotifications, getUnreadCount } from "@/lib/notifications";
+import { db } from "@/services/database";
+import { apiFetch } from "@/services/http";
+import type { Notification } from "@/types";
+import "./App.css";
 
-type Page = 
-  | 'dashboard' 
-  | 'parents' 
-  | 'parent-new' 
-  | 'parent-edit' 
-  | 'parent-detail'
-  | 'child-new'
-  | 'child-detail'
-  | 'grants'
-  | 'reports'
-  | 'settings'
-  | 'access-control'
-  | 'requests'
-  | 'document-review'
-  | 'imports';
+type Page =
+  | "dashboard"
+  | "parents"
+  | "parent-new"
+  | "parent-edit"
+  | "parent-detail"
+  | "child-new"
+  | "child-detail"
+  | "grants"
+  | "reports"
+  | "settings"
+  | "access-control"
+  | "requests"
+  | "document-review"
+  | "imports"
+  | "audit";
 
 interface NavigationItem {
   id: Page;
@@ -83,19 +86,20 @@ interface PendingApproval {
 }
 
 const navigation: NavigationItem[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'parents', label: 'Beneficiaries', icon: Users },
-  { id: 'grants', label: 'Grants & Gadgets', icon: Wallet },
-  { id: 'reports', label: 'Reports', icon: FileSpreadsheet },
-  { id: 'requests', label: 'Requests', icon: Inbox },
-  { id: 'document-review', label: 'Documents & Forms', icon: FileCheck2 },
-  { id: 'imports', label: 'Data Imports', icon: TableProperties },
-  { id: 'settings', label: 'Configuration', icon: Shield },
-  { id: 'access-control', label: 'Access Control', icon: UserCog },
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { id: "parents", label: "Beneficiaries", icon: Users },
+  { id: "grants", label: "Grants & Gadgets", icon: Wallet },
+  { id: "reports", label: "Reports", icon: FileSpreadsheet },
+  { id: "requests", label: "Requests", icon: Inbox },
+  { id: "document-review", label: "Documents & Forms", icon: FileCheck2 },
+  { id: "imports", label: "Data Imports", icon: TableProperties },
+  { id: "audit", label: "Audit Log", icon: History },
+  { id: "settings", label: "Configuration", icon: Shield },
+  { id: "access-control", label: "Access Control", icon: UserCog },
 ];
 
 function App() {
-  const [currentPage, setCurrentPage] = useState<Page>('dashboard');
+  const [currentPage, setCurrentPage] = useState<Page>("dashboard");
   const [pageParams, setPageParams] = useState<PageParams | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [desktopSidebarPinned, setDesktopSidebarPinned] = useState(true);
@@ -109,27 +113,34 @@ function App() {
   const isDesktopSidebarVisible = desktopSidebarPinned || desktopSidebarHovered;
   const isPageAllowed = (page: Page) => {
     const requiredPermissions: Partial<Record<Page, string>> = {
-      dashboard: 'dashboard.view',
-      parents: 'parents.read',
-      'parent-new': 'parents.create',
-      'parent-edit': 'parents.update',
-      'parent-detail': 'parents.read',
-      'child-new': 'children.create',
-      'child-detail': 'children.read',
-      grants: 'grants.read',
-      reports: 'reports.read',
-      requests: 'applications.read',
-      'access-control': 'roles.read',
-      imports: 'imports.create'
+      dashboard: "dashboard.view",
+      parents: "parents.read",
+      "parent-new": "parents.create",
+      "parent-edit": "parents.update",
+      "parent-detail": "parents.read",
+      "child-new": "children.create",
+      "child-detail": "children.read",
+      grants: "grants.read",
+      reports: "reports.read",
+      requests: "applications.read",
+      "access-control": "roles.read",
+      imports: "imports.create",
+      audit: "audit.read",
     };
-    if (page === 'settings') return hasPermission('organizations.read') || hasPermission('rates.read') || hasPermission('settings.read');
-    if (page === 'document-review') return hasPermission('documents.read') || hasPermission('forms.read');
+    if (page === "settings")
+      return (
+        hasPermission("organizations.read") ||
+        hasPermission("rates.read") ||
+        hasPermission("settings.read")
+      );
+    if (page === "document-review")
+      return hasPermission("documents.read") || hasPermission("forms.read");
     const required = requiredPermissions[page];
     return required ? hasPermission(required) : false;
   };
 
   const getDefaultPage = (): Page => {
-    return navigation.find(item => isPageAllowed(item.id))?.id || 'dashboard';
+    return navigation.find((item) => isPageAllowed(item.id))?.id || "dashboard";
   };
 
   useEffect(() => {
@@ -151,13 +162,15 @@ function App() {
   // ADD THIS useEffect for fetching pending requests count
   useEffect(() => {
     if (!isAuthenticated) return;
-    
+
     const fetchPendingCount = async () => {
       try {
-        const res = await apiFetch('/admin/pending-approvals');
+        const res = await apiFetch("/admin/pending-approvals");
         if (!res.ok) return;
-        const data = await res.json() as PendingApproval[];
-        setPendingRequestCount(data.filter(request => request.status === 'pending').length);
+        const data = (await res.json()) as PendingApproval[];
+        setPendingRequestCount(
+          data.filter((request) => request.status === "pending").length,
+        );
       } catch {
         // Portal might not be running, silently fail
       }
@@ -190,72 +203,87 @@ function App() {
     setSidebarOpen(false);
   };
 
-  const displayedPage = isPageAllowed(currentPage) ? currentPage : getDefaultPage();
+  const displayedPage = isPageAllowed(currentPage)
+    ? currentPage
+    : getDefaultPage();
 
   const renderPage = () => {
     switch (displayedPage) {
-      case 'dashboard':
+      case "dashboard":
         return <Dashboard onNavigate={navigateTo} />;
-      case 'parents':
+      case "parents":
         return <ParentManagement onNavigate={navigateTo} />;
-      case 'parent-new':
-        return <ParentForm onSave={() => navigateTo('parents')} onCancel={() => navigateTo('parents')} />;
-      case 'parent-edit':
-        return <ParentForm pNo={pageParams?.pNo} onSave={() => navigateTo('parents')} onCancel={() => navigateTo('parents')} />;
-      case 'parent-detail':
+      case "parent-new":
         return (
-          <ParentDetail 
-            pNo={pageParams?.pNo || ''} 
-            onNavigate={navigateTo} 
-            onBack={() => navigateTo('parents')} 
+          <ParentForm
+            onSave={() => navigateTo("parents")}
+            onCancel={() => navigateTo("parents")}
           />
         );
-      case 'child-new':
+      case "parent-edit":
+        return (
+          <ParentForm
+            pNo={pageParams?.pNo}
+            onSave={() => navigateTo("parents")}
+            onCancel={() => navigateTo("parents")}
+          />
+        );
+      case "parent-detail":
+        return (
+          <ParentDetail
+            pNo={pageParams?.pNo || ""}
+            onNavigate={navigateTo}
+            onBack={() => navigateTo("parents")}
+          />
+        );
+      case "child-new":
         return (
           <ChildForm
             pNo={pageParams?.pNo}
             onSave={(params) => {
               if (params?.pNo) {
-                navigateTo('parent-detail', { pNo: params.pNo });
+                navigateTo("parent-detail", { pNo: params.pNo });
               } else {
-                navigateTo('parents');
+                navigateTo("parents");
               }
             }}
             onCancel={() => {
               if (pageParams?.pNo) {
-                navigateTo('parent-detail', { pNo: pageParams.pNo });
+                navigateTo("parent-detail", { pNo: pageParams.pNo });
               } else {
-                navigateTo('parents');
+                navigateTo("parents");
               }
             }}
           />
         );
-      case 'child-detail':
+      case "child-detail":
         return (
           <ChildDetail
             childId={Number(pageParams?.childId)}
             onBack={() => {
               if (pageParams?.pNo) {
-                navigateTo('parent-detail', { pNo: pageParams.pNo });
+                navigateTo("parent-detail", { pNo: pageParams.pNo });
               } else {
-                navigateTo('parents');
+                navigateTo("parents");
               }
             }}
           />
         );
-      case 'grants':
+      case "grants":
         return <GrantGadgetManager onNavigate={navigateTo} />;
-      case 'reports':
-        return <ReportsExports onNavigate={navigateTo} />;
-      case 'requests':  // <-- ADD THIS
+      case "reports":
+        return <ReportsExports />;
+      case "requests": // <-- ADD THIS
         return <RequestsTab />;
-      case 'document-review':
+      case "document-review":
         return <DocumentReview />;
-      case 'imports':
+      case "imports":
         return <ImportWorkspace />;
-      case 'settings':
+      case "audit":
+        return <AuditLog />;
+      case "settings":
         return <SystemConfiguration />;
-      case 'access-control':
+      case "access-control":
         return <AccessControl />;
       default:
         return <Dashboard onNavigate={navigateTo} />;
@@ -279,10 +307,16 @@ function App() {
   }
 
   if (changingPassword) {
-    return <ChangePassword voluntary onComplete={() => setChangingPassword(false)} onCancel={() => setChangingPassword(false)} />;
+    return (
+      <ChangePassword
+        voluntary
+        onComplete={() => setChangingPassword(false)}
+        onCancel={() => setChangingPassword(false)}
+      />
+    );
   }
 
-  const filteredNav = navigation.filter(item => isPageAllowed(item.id));
+  const filteredNav = navigation.filter((item) => isPageAllowed(item.id));
 
   return (
     <div className="futuristic-shell min-h-screen flex text-foreground">
@@ -299,7 +333,7 @@ function App() {
           if (!desktopSidebarPinned) setDesktopSidebarHovered(false);
         }}
         className={`hidden lg:flex flex-col w-64 bg-sidebar/95 text-sidebar-foreground border-r border-sidebar-border fixed h-full backdrop-blur-xl shadow-2xl shadow-blue-950/15 transition-transform duration-300 ease-out z-50 ${
-          isDesktopSidebarVisible ? 'translate-x-0' : '-translate-x-full'
+          isDesktopSidebarVisible ? "translate-x-0" : "-translate-x-full"
         }`}
       >
         <div className="p-6 border-b border-sidebar-border/70">
@@ -314,20 +348,23 @@ function App() {
           </div>
         </div>
 
-                <nav className="flex-1 p-4 space-y-1 overflow-auto">
+        <nav className="flex-1 p-4 space-y-1 overflow-auto">
           {filteredNav.map((item) => {
             const Icon = item.icon;
-            const isActive = displayedPage === item.id || displayedPage.startsWith(item.id + '-');
-            const isRequests = item.id === 'requests';
-            
+            const isActive =
+              displayedPage === item.id ||
+              displayedPage.startsWith(item.id + "-");
+            const isRequests = item.id === "requests";
+
             return (
               <button
                 key={item.id}
                 onClick={() => navigateTo(item.id)}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all duration-200 relative
-                  ${isActive 
-                    ? 'bg-gradient-to-r from-sky-400/25 to-blue-500/20 text-white font-semibold shadow-sm shadow-blue-950/30' 
-                    : 'text-blue-100/85 hover:bg-white/10 hover:text-white'
+                  ${
+                    isActive
+                      ? "bg-gradient-to-r from-sky-400/25 to-blue-500/20 text-white font-semibold shadow-sm shadow-blue-950/30"
+                      : "text-blue-100/85 hover:bg-white/10 hover:text-white"
                   }`}
               >
                 <Icon className="w-5 h-5" />
@@ -348,7 +385,9 @@ function App() {
               <User className="w-5 h-5 text-white" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-medium text-sm truncate text-white">{user?.Full_Name}</p>
+              <p className="font-medium text-sm truncate text-white">
+                {user?.Full_Name}
+              </p>
               <p className="text-xs text-blue-100/80">{user?.Role}</p>
             </div>
           </div>
@@ -370,12 +409,19 @@ function App() {
         size="icon"
         className="hidden lg:inline-flex fixed bottom-4 left-4 z-[60] rounded-full shadow-xl"
       >
-        {isDesktopSidebarVisible ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+        {isDesktopSidebarVisible ? (
+          <ChevronLeft className="w-4 h-4" />
+        ) : (
+          <ChevronRight className="w-4 h-4" />
+        )}
       </Button>
 
       {/* Mobile Sidebar */}
       <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
-        <SheetContent side="left" className="w-64 p-0 bg-sidebar text-sidebar-foreground border-sidebar-border">
+        <SheetContent
+          side="left"
+          className="w-64 p-0 bg-sidebar text-sidebar-foreground border-sidebar-border"
+        >
           <div className="p-6 border-b border-sidebar-border/70">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-sky-400 to-blue-700 flex items-center justify-center shadow-lg shadow-blue-900/40">
@@ -388,20 +434,21 @@ function App() {
             </div>
           </div>
 
-                    <nav className="p-4 space-y-1">
+          <nav className="p-4 space-y-1">
             {filteredNav.map((item) => {
               const Icon = item.icon;
               const isActive = displayedPage === item.id;
-              const isRequests = item.id === 'requests';
-              
+              const isRequests = item.id === "requests";
+
               return (
                 <button
                   key={item.id}
                   onClick={() => navigateTo(item.id)}
                   className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all duration-200 relative
-                    ${isActive 
-                      ? 'bg-gradient-to-r from-sky-400/25 to-blue-500/20 text-white font-semibold shadow-sm shadow-blue-950/30' 
-                      : 'text-blue-100/85 hover:bg-white/10 hover:text-white'
+                    ${
+                      isActive
+                        ? "bg-gradient-to-r from-sky-400/25 to-blue-500/20 text-white font-semibold shadow-sm shadow-blue-950/30"
+                        : "text-blue-100/85 hover:bg-white/10 hover:text-white"
                     }`}
                 >
                   <Icon className="w-5 h-5" />
@@ -419,7 +466,9 @@ function App() {
       </Sheet>
 
       {/* Main Content */}
-      <main className={`flex-1 transition-[margin] duration-300 ${desktopSidebarPinned ? 'lg:ml-64' : 'lg:ml-0'}`}>
+      <main
+        className={`flex-1 transition-[margin] duration-300 ${desktopSidebarPinned ? "lg:ml-64" : "lg:ml-0"}`}
+      >
         {/* Header */}
         <header className="sticky top-0 z-30 bg-white/85 dark:bg-slate-950/85 backdrop-blur-xl border-b border-blue-200/70 dark:border-slate-700/70 px-3 sm:px-4 md:px-5 lg:px-6 xl:px-8 py-3 sm:py-4">
           <div className="flex items-center justify-between">
@@ -432,20 +481,30 @@ function App() {
                 </SheetTrigger>
               </Sheet>
               <h2 className="text-xl sm:text-2xl md:text-3xl font-semibold text-blue-950 dark:text-white">
-                {filteredNav.find(n => n.id === displayedPage || displayedPage.startsWith(n.id + '-'))?.label || filteredNav[0]?.label || 'Dashboard'}
+                {filteredNav.find(
+                  (n) =>
+                    n.id === displayedPage ||
+                    displayedPage.startsWith(n.id + "-"),
+                )?.label ||
+                  filteredNav[0]?.label ||
+                  "Dashboard"}
               </h2>
             </div>
 
             <div className="flex items-center gap-2 sm:gap-3 md:gap-4">
               {/* Dark Mode Toggle */}
-              <Button 
-                variant="ghost" 
-                size="icon" 
+              <Button
+                variant="ghost"
+                size="icon"
                 onClick={toggleTheme}
-                title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+                title={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
                 className="text-sm sm:text-base"
               >
-                {theme === 'light' ? <Moon className="w-4 h-4 sm:w-5 sm:h-5" /> : <Sun className="w-4 h-4 sm:w-5 sm:h-5" />}
+                {theme === "light" ? (
+                  <Moon className="w-4 h-4 sm:w-5 sm:h-5" />
+                ) : (
+                  <Sun className="w-4 h-4 sm:w-5 sm:h-5" />
+                )}
               </Button>
 
               {/* Notifications */}
@@ -467,9 +526,18 @@ function App() {
                     </div>
                   ) : (
                     notifications.slice(0, 5).map((notif) => (
-                      <DropdownMenuItem key={notif.id} className="flex flex-col items-start p-3">
+                      <DropdownMenuItem
+                        key={notif.id}
+                        className="flex flex-col items-start p-3"
+                      >
                         <div className="flex items-center gap-2 w-full">
-                          <Badge variant={notif.type === 'warning' ? 'destructive' : 'default'}>
+                          <Badge
+                            variant={
+                              notif.type === "warning"
+                                ? "destructive"
+                                : "default"
+                            }
+                          >
                             {notif.type}
                           </Badge>
                           <span className="text-xs text-slate-500 ml-auto">
@@ -477,7 +545,9 @@ function App() {
                           </span>
                         </div>
                         <p className="font-medium mt-1">{notif.title}</p>
-                        <p className="text-sm text-slate-500">{notif.message}</p>
+                        <p className="text-sm text-slate-500">
+                          {notif.message}
+                        </p>
                       </DropdownMenuItem>
                     ))
                   )}
